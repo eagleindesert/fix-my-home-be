@@ -1,0 +1,40 @@
+[project]
+name = "fix-my-home-be"
+version = "0.1.0"
+description = "고쳐야집 백엔드 API 및 비동기 작업 서버"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "alembic==1.15.2",
+    "fastapi==0.115.12",
+    "httpx==0.28.1",
+    "openai==1.76.0",
+    "pillow==11.2.1",
+    "psycopg2-binary==2.9.10",
+    "pydantic==2.11.3",
+    "pydantic-settings==2.8.1",
+    "python-multipart==0.0.20",
+    "sqlalchemy==2.0.40",
+    "uvicorn==0.34.2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==8.3.5",
+    "pyyaml==6.0.3",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP"]
+

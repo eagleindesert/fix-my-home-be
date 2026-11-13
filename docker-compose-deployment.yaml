@@ -1,0 +1,110 @@
+name: fix-my-home
+
+x-app-environment: &app-environment
+  FMH_ENVIRONMENT: ${FMH_ENVIRONMENT:-production}
+  FMH_DATABASE_URL: ${FMH_DATABASE_URL:?FMH_DATABASE_URL is required}
+  FMH_SESSION_SECRET: ${FMH_SESSION_SECRET:?FMH_SESSION_SECRET is required}
+  FMH_COOKIE_SECURE: ${FMH_COOKIE_SECURE:-true}
+  FMH_PUBLIC_ORIGIN: ${FMH_PUBLIC_ORIGIN:?FMH_PUBLIC_ORIGIN is required}
+  FMH_TRUSTED_PROXY_IPS: ${FMH_TRUSTED_PROXY_IPS:-172.30.0.1}
+  FMH_OPENAI_API_KEY: ${FMH_OPENAI_API_KEY:-}
+  FMH_OPENAI_MODEL: ${FMH_OPENAI_MODEL:-}
+  FMH_LOG_MAX_BYTES: "20000000"
+  FMH_LOG_BACKUPS: ${FMH_LOG_BACKUPS:-10}
+
+x-logging: &bounded-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "3"
+
+x-application: &application
+  image: ${IMAGE_NAME:-eagleindesert/fix-my-home-be}:${IMAGE_TAG:-latest}
+  platform: ${IMAGE_PLATFORM:-linux/arm64}
+  pull_policy: missing
+  environment: *app-environment
+  init: true
+  read_only: true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=128m
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  networks:
+    - backend
+  logging: *bounded-logging
+
+services:
+  db:
+    image: postgres:17-bookworm
+    platform: ${IMAGE_PLATFORM:-linux/arm64}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-fmh}
+      POSTGRES_USER: ${POSTGRES_USER:-fmh}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - backend
+    logging: *bounded-logging
+
+  migrate:
+    <<: *application
+    restart: "no"
+    command: [uv, run, --no-project, --no-sync, --python, /usr/local/bin/python, python, -m, app.migrate]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  be:
+    <<: *application
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${BE_PORT:-8000}:8000"
+    volumes:
+      - media-data:/var/lib/fmh/media
+      - log-data:/var/lib/fmh/logs
+    healthcheck:
+      test: [CMD, uv, run, --no-project, --no-sync, --python, /usr/local/bin/python, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+
+  worker:
+    <<: *application
+    restart: unless-stopped
+    command: [uv, run, --no-project, --no-sync, --python, /usr/local/bin/python, python, -m, app.worker]
+    volumes:
+      - media-data:/var/lib/fmh/media
+      - log-data:/var/lib/fmh/logs
+    stop_grace_period: 70s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  media-data:
+  log-data:
+
+networks:
+  backend:
+    ipam:
+      config:
+        - subnet: ${DOCKER_SUBNET:-172.30.0.0/24}
+          gateway: ${DOCKER_GATEWAY:-172.30.0.1}

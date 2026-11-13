@@ -1,0 +1,44 @@
+name: Backend verification
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17-bookworm
+        env:
+          POSTGRES_PASSWORD: testing-only
+          POSTGRES_DB: fmh_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d fmh_test"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      FMH_TEST_POSTGRES_URL: postgresql+psycopg2://postgres:testing-only@localhost:5432/fmh_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.17"
+          python-version: "3.13"
+      - run: uv sync --locked
+      - run: sudo apt-get update && sudo apt-get install -y fonts-droid-fallback
+      - run: uv run pytest -q
+      - run: bash -n start.sh scripts/build-common.sh scripts/build-start.sh scripts/build-push.sh
+
+  cross-build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: restart-policy=no
+      # No QEMU action: ARM stages must never execute target instructions.
+      - run: docker buildx build --platform linux/arm64 --output type=oci,dest=/tmp/backend-arm64.tar .
+      - run: docker buildx build --platform linux/amd64 --load -t fmh-test .
+      - run: docker run --rm fmh-test uv run --no-project --no-sync --python /usr/local/bin/python python -c "from app.main import app; from app.worker import run_once; import pathlib; assert not list(pathlib.Path('/app').rglob('*.py'))"
