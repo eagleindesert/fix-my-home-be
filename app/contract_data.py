@@ -1,4 +1,4 @@
-"""API명세서.md에서 생성됨. 수정 후 generate_contract를 실행하세요."""
+"""API명세서.md에서 생성됨. 원문 수정 후 uv run python -m scripts.generate_contract 실행."""
 
 ENUMS = {'ResourceType': ['REQUEST',
                   'WORK_ITEM',
@@ -92,7 +92,300 @@ ENUMS = {'ResourceType': ['REQUEST',
  'DeletionTarget': ['PHOTO', 'RECORD', 'REQUEST'],
  'DeletionStatus': ['QUEUED', 'PROCESSING', 'COMPLETED', 'REJECTED', 'FAILED']}
 
-SCHEMAS = {'PageDTO<T>': [{'name': 'items',
+ENUM_DESCRIPTIONS = {'ResourceType': '| 값 | 연결 자원 |\n'
+                 '| --- | --- |\n'
+                 '| `REQUEST` | RequestDTO |\n'
+                 '| `WORK_ITEM` | WorkItemDTO |\n'
+                 '| `PHOTO` | PhotoDTO |\n'
+                 '| `RECORD` | RecordDTO; 외부·자가 해결 결과 포함 |\n'
+                 '| `PHOTO_GROUP` | PhotoGroupDTO |\n'
+                 '| `DIALOGUE` | DialogueDTO |\n'
+                 '| `TECHNICIAN` | TechnicianDTO |\n'
+                 '| `CASE` | CaseDTO |\n'
+                 '| `SCHEDULE` | ScheduleDTO; `resourceId`는 기사 ID |\n'
+                 '| `CONSULTATION` | ConsultationDTO |\n'
+                 '| `QUOTE` | QuoteDTO |\n'
+                 '| `RESERVATION` | ReservationDTO; 합의·수행 이력 포함 |\n'
+                 '| `RESERVATION_CHANGE` | ReservationChangeDTO |\n'
+                 '| `AI_JOB` | AiJobDTO |\n'
+                 '| `REPORT` | ReportDTO; `resourceId`는 작업 항목 ID |\n'
+                 '| `DELIVERY` | DeliveryDTO |\n'
+                 '| `PDF_JOB` | PdfJobDTO |\n'
+                 '| `DELETION_JOB` | DeletionJobDTO |',
+ 'Role': '| 값 | 설명 |\n| --- | --- |\n| `USER` | 사용자 |\n| `TECHNICIAN` | 기사 |',
+ 'ServiceField': '| 값 | 설명 |\n'
+                 '| --- | --- |\n'
+                 '| `PLUMBING` | 수도·배관 |\n'
+                 '| `DOORS_WINDOWS` | 문·창호 |\n'
+                 '| `WALLS_WALLPAPER` | 벽면·도배 |\n'
+                 '| `ELECTRICAL` | 조명·전기설비 |\n'
+                 '| `APPLIANCES` | 생활가전 |',
+ 'SupportStatus': '| 값 | 설명 |\n'
+                  '| --- | --- |\n'
+                  '| `SUPPORTED` | 지원 범위 |\n'
+                  '| `UNSUPPORTED_REGION` | 서울 밖 |\n'
+                  '| `UNSUPPORTED_FIELD` | 지원 5개 분야 밖 |\n'
+                  '| `INPUT_REQUIRED` | 지역·분야 입력 필요 |\n'
+                  '| `DATA_INCOMPLETE` | 서울 내 기준 자료 보완 필요 |',
+ 'RequestStatus': '| 값 | 설명 |\n'
+                  '| --- | --- |\n'
+                  '| `OPEN` | 요청 진행·기록 가능 |\n'
+                  '| `CLOSED` | 사용자 전체 종료 확인 완료; 삭제와 구분 |',
+ 'WorkItemStatus': '| 값 | 설명 |\n'
+                   '| --- | --- |\n'
+                   '| `NEEDS_CONFIRMATION` | 요약·작업 사실 확인 전 |\n'
+                   '| `EXPLORING` | 기사 탐색·상담 |\n'
+                   '| `SELF_HELP` | 자가 해결 진행 |\n'
+                   '| `MANUFACTURER_AS` | 공식 AS 경로 이용 |\n'
+                   '| `RESERVED` | 항목 예약 확정 |\n'
+                   '| `IN_PROGRESS` | 실제 작업 중 |\n'
+                   '| `STOP_REQUESTED` | 사용자 중단 요청 중 |\n'
+                   '| `RESOLVED` | 해당 항목 해결; 활성 관계 우회 종료 불가 |\n'
+                   '| `NOT_CONTINUING` | 미해결 상태에서 더 진행하지 않음 |',
+ 'ResolutionPath': '| 값 | 설명 |\n'
+                   '| --- | --- |\n'
+                   '| `SELF_HELP` | 검증된 자가 해결 |\n'
+                   '| `MANUFACTURER_AS` | 등록 공식 AS |\n'
+                   '| `TECHNICIAN` | 서비스 내 기사 상담·견적·예약 |\n'
+                   '| `DIRECT_CONTACT` | 외부 직접 연락; 플랫폼 작업 생성 아님 |',
+ 'OutcomeResult': '| 값 | 설명 |\n'
+                  '| --- | --- |\n'
+                  '| `RESOLVED` | 사용자 진술의 해결 |\n'
+                  '| `UNRESOLVED` | 미해결 |\n'
+                  '| `UNAVAILABLE` | 외부 경로 이용 불가 |',
+ 'AiUseStatus': '| 값 | 설명 |\n'
+                '| --- | --- |\n'
+                '| `NOT_SELECTED` | AI 작업을 만들지 않은 정상 이용 경로 |\n'
+                '| `INCOMPLETE` | 이용 중·실패·시간 초과 등 분석 미완료 |\n'
+                '| `COMPLETED` | 분석 완료; 사용자 확인과 별개 |',
+ 'AiJobType': '| 값 | 설명 |\n'
+              '| --- | --- |\n'
+              '| `DIAGNOSIS` | 지정 작업 항목의 증상·원인 후보·분야 초안; 기본 항목도 `workItemId` 필수 |\n'
+              '| `QUESTION` | 요청 전체의 추가 질문 하나; `workItemId` 없이 발행 슬롯·열린 질문·종료·5회 한도 검사 |\n'
+              '| `GUIDE_EXPLANATION` | 지정 작업 항목에 적용되는 검증 가이드의 표현만 맞춤화; `workItemId`·`guideId` 필수 '
+              '|\n'
+              '| `CASE_MATCHING` | 지정 작업 항목의 원문 근거 사례 평가·추천 설명; `workItemId` 필수 |\n'
+              '| `PHOTO_COMPARISON` | 요청의 벽지 물자국 사진 묶음 비교; `photoGroupId` 필수, `workItemId` 전송 금지 '
+              '|\n'
+              '| `REPORT_DRAFT` | 지정 작업 항목의 인계·경과 보고서 초안; `workItemId` 필수 |',
+ 'AiJobStatus': '| 값 | 설명 |\n'
+                '| --- | --- |\n'
+                '| `QUEUED` | 서버 접수·대기 |\n'
+                '| `RUNNING` | 처리 중 |\n'
+                '| `SUCCEEDED` | 결과 저장 완료; 낡음·사용자 확인은 별도 |\n'
+                '| `FAILED` | 실패; 저장 입력·오류 유지 |\n'
+                '| `TIMED_OUT` | 접수 후 60초 도달; 늦은 성공으로 변경 불가 |',
+ 'ReviewStatus': '| 값 | 설명 |\n'
+                 '| --- | --- |\n'
+                 '| `DRAFT` | 사용자 미확인 초안 |\n'
+                 '| `CONFIRMED` | 해당 근거·본문·범위 확인 완료 |\n'
+                 '| `NEEDS_UPDATE` | 변경·삭제로 갱신·재확인 필요 |',
+ 'GuidanceType': '| 값 | 설명 |\n'
+                 '| --- | --- |\n'
+                 '| `EMERGENCY` | 검증된 긴급 대응·공식 대안 |\n'
+                 '| `MANUFACTURER_AS` | 제조사 공식 지원·예약 경로 |',
+ 'GuidanceStatus': '공유 코드 집합이다. 필드별 허용값·배열 조합은 `GuideResultDTO`와 `OfficialServiceResultDTO` 표를 '
+                   '따르며, 모든 필드에서 모든 코드를 사용하는 것은 아니다.\n'
+                   '\n'
+                   '| 값 | 설명 |\n'
+                   '| --- | --- |\n'
+                   '| `AVAILABLE` | 등록·검증 안내 제공 |\n'
+                   '| `INFORMATION_REQUIRED` | 제품 등 입력 보완 필요 |\n'
+                   '| `NOT_REGISTERED` | 등록 안내 없음 |\n'
+                   '| `NOT_APPLICABLE` | 조회 대상 외 또는 적용 불가; 실행 절차 없음 |\n'
+                   '| `VALIDATION_FAILED` | 안내·경로 검증 실패; 실행 절차·미검증 경로 미제공 |',
+ 'DialogueAction': '| 값 | 설명 |\n'
+                   '| --- | --- |\n'
+                   '| `ANSWER` | 현재 질문 답변 |\n'
+                   '| `SKIP` | 현재 질문 건너뛰기; 한 회 소비 |\n'
+                   '| `FINISH` | 현재 정보로 확인 단계 진행 |',
+ 'VisitMode': '| 값 | 설명 |\n'
+              '| --- | --- |\n'
+              '| `FIXED` | 지정한 작업 시작 시각 |\n'
+              '| `FLEXIBLE` | 작업 전체가 들어갈 수 있는 가능 구간 |',
+ 'FactSource': '| 값 | 설명 |\n'
+               '| --- | --- |\n'
+               '| `OBSERVATION` | 사진에서 관찰한 사실 |\n'
+               '| `USER_STATEMENT` | 사용자 진술 |\n'
+               '| `AI_INFERENCE` | AI 추정·원인 후보 |\n'
+               '| `UNKNOWN` | 미확인 |\n'
+               '| `FIELD_CONFIRMED` | 기사 현장 확인 |',
+ 'ComparisonStatus': '| 값 | 설명 |\n'
+                     '| --- | --- |\n'
+                     '| `CHANGED` | 관찰 변화 있음 |\n'
+                     '| `UNCHANGED` | 관찰 변화 없음; 빈 사각형 |\n'
+                     '| `INCOMPARABLE` | 비교 불가; 사유·재촬영 안내 |\n'
+                     '| `NOT_PERFORMED` | 사진 부족 등으로 비교 미수행 |',
+ 'CaseDataType': '| 값 | 설명 |\n'
+                 '| --- | --- |\n'
+                 '| `MOCK` | 별도로 준비한 모의 사례 |\n'
+                 '| `REPRODUCED` | 별도로 준비한 재현자료; 실제 접수 실적 아님 |',
+ 'EvaluationStatus': '| 값 | 설명 |\n'
+                     '| --- | --- |\n'
+                     '| `NOT_REQUESTED` | 명시적 평가 미실행 |\n'
+                     '| `RUNNING` | 평가 진행 중 |\n'
+                     '| `COMPLETED` | 평가 완료; 빈 결과도 가능 |\n'
+                     '| `INCOMPLETE` | 평가 실패·시간 초과·필수 결과 누락 |',
+ 'FeasibilityStatus': '| 값 | 설명 |\n'
+                      '| --- | --- |\n'
+                      '| `MATCHED` | 해당 조건 검사 완료·충족 |\n'
+                      '| `NOT_MATCHED` | 조건 불충족 |\n'
+                      '| `UNKNOWN` | 자료·소요 시간 부족으로 미확인 |',
+ 'ConsultationStatus': '| 값 | 설명 |\n'
+                       '| --- | --- |\n'
+                       '| `PENDING` | 사용자 선택·기사 응답 대기; 활성 관계 |\n'
+                       '| `ACCEPTED` | 기사 수락; 활성 관계 |\n'
+                       '| `REJECTED` | 기사 거절 |\n'
+                       '| `CLOSED` | 종료·선택 해제·예약 종료·경쟁 확정으로 종료 |',
+ 'ConsultationAction': '| 값 | 설명 |\n'
+                       '| --- | --- |\n'
+                       '| `ACCEPT` | 기사의 대기 상담 수락 |\n'
+                       '| `REJECT` | 기사의 대기 상담 거절 |\n'
+                       '| `CLOSE` | 당사자의 상담 종료; 활성 예약이면 차단 |\n'
+                       '| `DESELECT` | 사용자의 선택 해제; 활성 예약이면 차단 |',
+ 'CostCategory': '| 값 | 설명 |\n'
+                 '| --- | --- |\n'
+                 '| `LABOR` | 공임 |\n'
+                 '| `VISIT` | 출장비 |\n'
+                 '| `DIAGNOSIS` | 진단비 |\n'
+                 '| `PART` | 부품비 |\n'
+                 '| `ADDITIONAL_WORK` | 추가 작업 비용·조건 |',
+ 'QuoteStatus': '| 값 | 설명 |\n'
+                '| --- | --- |\n'
+                '| `ACTIVE` | 최신 미확정 제안 |\n'
+                '| `REPLACED` | 새 수정 버전으로 대체 |\n'
+                '| `WITHDRAWN` | 기사 철회 |\n'
+                '| `REJECTED` | 사용자 거절 |\n'
+                '| `EXPIRED` | 서버 시각이 유효 종료에 도달 |\n'
+                '| `RECONFIRMATION_REQUIRED` | 전제 변경으로 재발행 필요 |\n'
+                '| `SELECTED` | 예약 확정 당시 선택; 합의 보존 |\n'
+                '| `UNSELECTABLE` | 상담 종료·동일 항목 경쟁 확정 등으로 선택 불가 |',
+ 'QuoteAction': '| 값 | 설명 |\n| --- | --- |\n| `WITHDRAW` | 발행 기사 철회 |\n| `REJECT` | 사용자 거절 |',
+ 'ReservationOperation': '| 값 | 설명 |\n'
+                         '| --- | --- |\n'
+                         '| `CREATE` | 신규 예약 확정 사전 검사; 사용자 |\n'
+                         '| `CHANGE_BEFORE_START` | 시작 전 변경 검사; 당사자 |\n'
+                         '| `START_WORK` | 실제 시작 검사; 당사자; `proposedStartAt`을 이용한 조기 시작 동의 전 검사 포함 '
+                         '|\n'
+                         '| `CHANGE_IN_PROGRESS` | 진행 중 변경 검사; 당사자 |',
+ 'TravelEndpointType': '| 값 | 설명 |\n'
+                       '| --- | --- |\n'
+                       '| `DEPARTURE` | 기사 기준 출발 위치; `from`에만 사용 |\n'
+                       '| `RESERVATION` | 기사 본인의 서비스 예약 |\n'
+                       '| `EXTERNAL_VISIT` | 기사 본인이 등록한 외부 일정 |\n'
+                       '| `RETURN` | 기사 기준 복귀 위치; `to`에만 사용 |',
+ 'ScheduleCheckStatus': '| 값 | 설명 |\n'
+                        '| --- | --- |\n'
+                        '| `VALID` | 필요한 검사 충족 |\n'
+                        '| `CONFLICT` | 실제 작업·이동 충돌 |\n'
+                        '| `POSSIBLE_CONFLICT` | 종료 불명 등으로 충돌 가능 |\n'
+                        '| `RECHECK_REQUIRED` | 기준 자료 부족·재검사 미완료 |',
+ 'ReservationStatus': '| 값 | 설명 |\n'
+                      '| --- | --- |\n'
+                      '| `CONFIRMED` | 확정·방문 준비; 활성 |\n'
+                      '| `IN_PROGRESS` | 실제 작업 중; 활성 |\n'
+                      '| `STOP_REQUESTED` | 사용자 중단 요청; 점유 유지·완료 및 변경 반영 차단 |\n'
+                      '| `CANCELLED` | 실제 시작 전 취소 |\n'
+                      '| `COMPLETED` | 기사 실제 완료 |\n'
+                      '| `STOPPED` | 기사 실제 중단; 완료와 구분 |',
+ 'ChangeType': '| 값 | 설명 |\n'
+               '| --- | --- |\n'
+               '| `BEFORE_START` | 실제 시작 전 예약 변경; 30분 준비 적용 |\n'
+               '| `IN_PROGRESS` | 실제 시작 후 범위·금액·종료 변경; 30분 재적용 없음 |',
+ 'ChangeStatus': '| 값 | 설명 |\n'
+                 '| --- | --- |\n'
+                 '| `PROPOSED` | 같은 버전 양측 확인 대기·조건 검사 필요 |\n'
+                 '| `APPLIED` | 양측 확인·최신 검사 후 반영 |\n'
+                 '| `REJECTED` | 상대 거절; 기존 합의 유지 |\n'
+                 '| `WITHDRAWN` | 제안자 철회 |\n'
+                 '| `SUPERSEDED` | 새 버전 제안으로 대체 |\n'
+                 '| `INVALIDATED` | 종료·기준 변경으로 반영 불가 |',
+ 'ChangeAction': '| 값 | 설명 |\n'
+                 '| --- | --- |\n'
+                 '| `ACCEPT` | 같은 변경안 버전 수락 |\n'
+                 '| `REJECT` | 상대 변경안 거절 |\n'
+                 '| `WITHDRAW` | 본인 제안 철회 |',
+ 'ConsentAction': '| 값 | 설명 |\n'
+                  '| --- | --- |\n'
+                  '| `GRANT` | 사용자의 현재 예약 조기 시작 동의 |\n'
+                  '| `REVOKE` | 사용자의 시작 전 동의 철회 |',
+ 'WorkEventType': '| 값 | 설명 |\n'
+                  '| --- | --- |\n'
+                  '| `START` | 기사; 유효 확정 예약에서 실제 시작 |\n'
+                  '| `REQUEST_STOP` | 사용자; 작업 중 사유 입력·점유 유지 |\n'
+                  '| `STOP` | 기사; 사용자 요청 확인 또는 직접 중단·수행 기록 필수 |\n'
+                  '| `COMPLETE` | 기사; 중단 요청 없는 작업 중·수행 기록 필수 |\n'
+                  '| `UPDATE_EXPECTED_END` | 기사; 작업 중·중단 요청 중 운영상 종료 예상 갱신 |',
+ 'EndEstimateSource': '| 값 | 설명 |\n'
+                      '| --- | --- |\n'
+                      '| `AGREEMENT` | 최초 또는 변경 합의의 예상 종료 |\n'
+                      '| `OPERATIONS` | 실제 지연·초과 사실에 대한 운영상 갱신 |',
+ 'DeliveryPurpose': '| 값 | 설명 |\n'
+                    '| --- | --- |\n'
+                    '| `CONSULTATION` | 선택 기사 상담용; 상세 주소·연락처 제외 |\n'
+                    '| `HANDOVER` | 해당 예약 기사 인계; 관계별 범위 적용 |\n'
+                    '| `EXTERNAL_PDF` | 임대인·관리사무소 제출용; 외부 수신자 계정·링크 없음 |',
+ 'RedactionTarget': '| 값 | 설명 |\n'
+                    '| --- | --- |\n'
+                    '| `PHOTO` | 선택 사진의 픽셀·파일명 |\n'
+                    '| `RECORD` | 선택한 사용자 기록 |\n'
+                    '| `QUESTION` | 선택한 사용자와 AI 문답 |\n'
+                    '| `SUMMARY` | 해당 항목 확인 요약 |\n'
+                    '| `REPORT` | 해당 항목 확인 보고서 |\n'
+                    '| `QUOTE_CONTEXT` | 상담 견적 전제의 허용된 자유 문자열 필드; `fieldPath`로 지정 |',
+ 'ProcessingStatus': '| 값 | 설명 |\n'
+                     '| --- | --- |\n'
+                     '| `QUEUED` | 처리 접수 |\n'
+                     '| `PROCESSING` | 처리 중 |\n'
+                     '| `READY` | 가림·파일 생성 완료; 사용자 확인·권한은 별도 |\n'
+                     '| `FAILED` | 처리 실패; 원본 대체 금지 |\n'
+                     '| `STALE` | 근거·범위 변경으로 제공 불가 |',
+ 'DeletionTarget': '| 값 | 설명 |\n'
+                   '| --- | --- |\n'
+                   '| `PHOTO` | 본인 요청 사진 및 모든 참조·파생 결과 |\n'
+                   '| `RECORD` | 본인 일반 기록; 기사 수행 기록 제외 |\n'
+                   '| `REQUEST` | 요청과 모든 연결 항목·자료 |',
+ 'DeletionStatus': '| 값 | 설명 |\n'
+                   '| --- | --- |\n'
+                   '| `QUEUED` | 삭제 접수·접근 차단 |\n'
+                   '| `PROCESSING` | 원본·참조·파일 정리 중 |\n'
+                   '| `COMPLETED` | 모든 정리 확인 완료 |\n'
+                   '| `REJECTED` | 소유 확인을 통과한 본인 일반 기록·요청 전체의 활성 관계로 접수 전 거절; 삭제·접근 차단 미시작; '
+                   '`403`·`404`는 작업 자체를 생성하지 않음 |\n'
+                   '| `FAILED` | 부분 정리 실패·미완료; 접근 차단 유지 |'}
+
+SCHEMAS = {'ErrorResponseDTO': [{'name': 'code', 'type': 'string', 'required': True, 'description': '원인 코드'},
+                      {'name': 'message',
+                       'type': 'string',
+                       'required': True,
+                       'description': '사용자에게 표시할 사유'},
+                      {'name': 'fieldErrors',
+                       'type': 'FieldErrorDTO[]',
+                       'required': True,
+                       'description': '필드·파일별 사유; 없으면 빈 배열'},
+                      {'name': 'retryable',
+                       'type': 'boolean',
+                       'required': True,
+                       'description': '요청 내용 보완 없이 재시도 가능한지; 실행 방법은 requiredActions와 공통 멱등 규칙 적용; '
+                                      '접수된 실패 작업을 같은 키로 새 작업으로 만드는 의미가 아님'},
+                      {'name': 'permissionDenied',
+                       'type': 'boolean',
+                       'required': True,
+                       'description': '인증·인가 문제 여부'},
+                      {'name': 'currentState',
+                       'type': 'ResourceStateDTO?',
+                       'required': True,
+                       'description': '권한 범위 내 최신 상태; 없거나 공개 불가이면 null; 삭제 작업의 거절·실패 연결은 '
+                                      'resourceType=DELETION_JOB과 해당 작업 ID 사용'},
+                      {'name': 'checks',
+                       'type': 'ScheduleCheckDTO[]',
+                       'required': True,
+                       'description': '일정·작업·이동 검사별 사유와 조치; 권한 있는 관련 예약 ID만 포함; 해당 없으면 빈 배열'},
+                      {'name': 'requiredActions',
+                       'type': 'string[]',
+                       'required': True,
+                       'description': '재조회·입력 보완·관계 정리·수동 복귀 등 필요한 조치'}],
+ 'PageDTO<T>': [{'name': 'items',
                  'type': 'T[]',
                  'required': False,
                  'description': '빈 배열은 현재 조건의 결과 없음; 오류·평가 미완료와 구분'},
@@ -2620,9 +2913,258 @@ SCHEMAS = {'PageDTO<T>': [{'name': 'items',
                        'required': False,
                        'description': '최신 값; 조회 권한 없으면 구조 전체 미반환'}]}
 
+SCHEMA_DESCRIPTIONS = {'ErrorResponseDTO': '오류는 data 래퍼 없이 루트 객체로 반환합니다.',
+ 'PageDTO<T>': '',
+ 'SessionDTO': '세션 식별자는 JSON에 넣지 않고 `Set-Cookie`로 반환한다. 만료 정보의 본문 제공 여부는 미정이다.',
+ 'ServiceInfoDTO': '',
+ 'TriggerDTO': '',
+ 'RegionValueDTO': '입력·응답 공용 지역 값이다. 서울 밖 또는 기준 자료에 매핑되지 않은 지역도 표현하며, 응답의 `regionId`는 미매핑이면 '
+                   '`null`이다.',
+ 'ServiceRegionDTO': '지원 동 기준 자료의 조회용 타입이다. 일반 지역 값과 달리 `regionId`·`version`이 필수이며, 미매핑 지역을 이 타입으로 '
+                     '반환하지 않는다.',
+ 'SupportDTO': '',
+ 'PublicTechnicianDTO': '',
+ 'ContactDTO': '',
+ 'SourceDTO': '',
+ 'GuidanceDTO': '공개 안내·긴급 안내의 응답이다. 가이드와 공식 경로의 상태를 각각 반환한다.\n'
+                '\n'
+                '\n'
+                '| 사용 위치·조회 종류 | `guide` | `officialService` |\n'
+                '| --- | --- | --- |\n'
+                '| `GET /public/guidance?type=EMERGENCY`, 요청·문답의 `emergencyGuidance` | 긴급 대응 가이드 '
+                '결과 | 공식 지원·대안 경로 결과 |\n'
+                '| `GET /public/guidance?type=MANUFACTURER_AS` | `status=NOT_APPLICABLE`, '
+                '`guides=[]`, `missingFields=[]`; `message`에 이 조회에서 가이드를 제공하지 않음을 표시 | 제조사 공식 AS '
+                '조회 결과 |\n'
+                '\n'
+                '제조사 AS 조회의 빈 `guide`는 안내 자료 미등록을 뜻하지 않는다. 두 필드는 항상 반환하며 한쪽 상태로 다른 쪽 상태를 대체하지 않는다. '
+                '`SolutionsDTO.selfHelp`는 아래 `GuideResultDTO`를 자가 해결 안내에 사용한다.',
+ 'GuideResultDTO': '| `status` | `guides` | `missingFields` |\n'
+                   '| --- | --- | --- |\n'
+                   '| `AVAILABLE` | 적용 가능한 검증 가이드가 1개 이상; `applicable=false`인 항목은 `steps=[]` | '
+                   '`[]` |\n'
+                   '| `INFORMATION_REQUIRED` | `[]` | 보완할 입력 경로 1개 이상 |\n'
+                   '| `NOT_REGISTERED` | `[]` | `[]` |\n'
+                   '| `NOT_APPLICABLE` | `[]` 또는 적용 불가 조건·주의를 보여 주는 검증 가이드; 반환한 항목은 모두 '
+                   '`applicable=false`, `steps=[]` | `[]` |\n'
+                   '| `VALIDATION_FAILED` | `[]`; 검증 실패한 내용을 반환하지 않음 | `[]` |\n'
+                   '\n'
+                   '`type=MANUFACTURER_AS`의 `NOT_APPLICABLE`은 위 `GuidanceDTO`의 고정 빈 배열 규칙을 적용한다.',
+ 'OfficialServiceResultDTO': '| `status` | `routes` | `missingFields` |\n'
+                             '| --- | --- | --- |\n'
+                             '| `AVAILABLE` | 검증된 공식 경로 1개 이상 | `[]` |\n'
+                             '| `INFORMATION_REQUIRED` | `[]` 또는 제품별 정보 보완 전에도 확인 가능한 일반 공식 경로만; 각 '
+                             '항목은 `productSpecific=false` | 보완할 입력 경로 1개 이상 |\n'
+                             '| `NOT_REGISTERED` | `[]`; 필요한 입력은 갖췄으나 등록 경로가 없음 | `[]` |\n'
+                             '| `VALIDATION_FAILED` | `[]`; 경로 검증에 실패하여 제공 가능한 경로가 없음 | `[]` |\n'
+                             '\n'
+                             '`INFORMATION_REQUIRED`는 정상 조회 결과이며 `422 VALIDATION_ERROR`와 구분한다. '
+                             '`missingFields`는 공개 조회에서는 `manufacturer` 등 쿼리 필드명, 항목별 조회에서는 '
+                             '`facts.product.manufacturer` 등 해당 입력 경로를 사용한다.',
+ 'GuideDTO': '',
+ 'OfficialRouteDTO': '',
+ 'SolutionsDTO': '',
+ 'ProductDTO': '',
+ 'SymptomContextDTO': '최초 요청 생성 시 `context`를 생략하거나 `null`로 보내면 아래 nullable 필드는 모두 `null`, '
+                      '`attemptedActions`는 `[]`인 객체를 저장·반환한다. 일부 하위 필드만 입력해도 나머지는 같은 기본값을 적용한다. '
+                      '`PATCH`에서는 생략한 하위 필드를 기존 값으로 유지한다.',
+ 'RequestInputDTO': '',
+ 'RequestListItemDTO': '',
+ 'RequestDTO': 'AI 작업 ID·결과 이력은 `GET /requests/{requestId}/ai-jobs`에서 조회한다.',
+ 'HistoryEntryDTO': '',
+ 'VisitDetailsDTO': '',
+ 'ItemClosureDTO': '',
+ 'TimeRangeDTO': '실제 시작·종료와 그에 따른 중복 구간은 서버의 초 단위 시각을 유지한다.',
+ 'VisitPreferenceDTO': '유연 구간에는 작업 전체가 포함되어야 하며 이동시간은 별도 검사한다.',
+ 'WorkItemFactsDTO': '독립 항목 생성·현재 사실 조회의 공용 구조이다. 부분 수정은 WorkItemFactsPatchDTO를 사용한다.',
+ 'WorkItemFactsPatchDTO': '모든 필드는 선택이다. 생략한 하위 필드는 유지하고 전송한 배열은 전체 교체한다. `null`은 nullable 필드를 '
+                          '미확인으로 정정한다.',
+ 'ProductPatchDTO': '',
+ 'WorkItemDTO': '미확정 AI 분야·요약은 해당 항목의 `DIAGNOSIS` 작업에서 `result.fieldCandidates`·`result.summary`로 '
+                '조회한다.',
+ 'SummaryDTO': '',
+ 'FactDTO': '',
+ 'PhotoInputDTO': '최초 접수·사진 추가 업로드의 메타정보이다. 기존 사진의 `PUT` 수정에는 필수 필드가 구분된 `PhotoUpdateInputDTO`를 '
+                  '사용한다.',
+ 'PhotoUpdateInputDTO': '`PUT /photos/{photoId}`의 `metadata`에 사용하는 전체 교체 입력이다. 아래 네 필드를 모두 보내야 하며 '
+                        '하나라도 생략하면 `422 VALIDATION_ERROR`이다. `null`·빈 배열은 기존 값 유지가 아닌 명시적 해제이다.\n'
+                        '\n'
+                        '\n'
+                        '사진 파일은 별도 `file` 파트를 생략하면 유지한다. 항목 참조 해제는 사진 삭제가 아니며 사진 삭제 API를 대신하지 않는다.',
+ 'PhotoDTO': '',
+ 'MediaDTO': '',
+ 'PhotoCollectionDTO': '',
+ 'RecordContentDTO': '',
+ 'OutcomeContentDTO': '',
+ 'RecordDTO': '',
+ 'PhotoGroupInputDTO': '',
+ 'PhotoGroupDTO': '',
+ 'TimelineDTO': '',
+ 'DialogueDTO': '',
+ 'QuestionDTO': '`answer=null`, `optionId=null`, `skipped=false`이면 미응답이다. 답변 가능 여부에는 '
+                '`DialogueDTO.finished`도 확인한다.',
+ 'QuestionOptionDTO': '',
+ 'AiJobDTO': '작업 조회는 실패·시간 초과에도 `200`이며 처리 오류는 `error`로 반환한다.\n'
+             '\n'
+             '\n'
+             '| 조회·사용 조건 | 반환·선택 기준 |\n'
+             '| --- | --- |\n'
+             '| 현재 결과 (`QUESTION` 제외) | 같은 종류·대상·현재 근거의 `SUCCEEDED`, `stale=false`, `result != '
+             'null` 중 `receivedAt` 내림차순·동률 `jobId` 내림차순 첫 결과 |\n'
+             '| 근거 버전 변경 | `stale=true`; 삭제 근거가 없는 과거 결과는 본인에게 과거 결과로 조회 가능 |\n'
+             '| 삭제 근거 포함 | `result=null`; 상위 요청 삭제는 작업 조회도 `404` |\n'
+             '| 현재 질문 | 답변 가능 여부·종료 상태는 RequestDTO.dialogue 기준 |',
+ 'AiAttemptDTO': '',
+ 'AiResultDTO': '해당 종류의 결과 필드만 채우고 나머지는 `null` 또는 빈 배열로 반환한다. 대상·최신성은 상위 AiJobDTO의 필드로 구분한다.',
+ 'PhotoComparisonDTO': '상위 작업의 처리 상태와 아래 비교 결과 상태는 별개이다.\n'
+                       '\n'
+                       '\n'
+                       '| 비교 결과 | 필드 값 |\n'
+                       '| --- | --- |\n'
+                       '| 유효 묶음의 비교쌍 부족 | 작업 `SUCCEEDED`, `attempts=[]`, `error=null`; 비교 '
+                       '`NOT_PERFORMED`, `photoIds=[]`, `chronologyKnown=false`, `regions=[]`, '
+                       '`observations=[]`, `causeUnknown=true`, 사유·보완 안내 반환 |\n'
+                       '| 유효한 두 사진의 시각적 비교 불가 | 작업 `SUCCEEDED`, 비교 `INCOMPARABLE`, 사유·재촬영 안내 반환 |\n'
+                       '| AI 처리 실패·시간 초과 | 작업 `FAILED`·`TIMED_OUT`, `result=null`, 작업의 `error` 반환 '
+                       '|',
+ 'EvidenceRegionDTO': '',
+ 'BoundingBoxDTO': '길이 4인 JSON 배열 `[x_min, y_min, x_max, y_max]`이다. 표의 필드는 배열 인덱스이며 웹·PDF에서 같은 정규화 '
+                   '이미지 방향을 사용한다.',
+ 'TechnicianProfileContentDTO': '',
+ 'ContactSettingDTO': '',
+ 'TechnicianDTO': '',
+ 'PortfolioDTO': '',
+ 'CaseContentDTO': '',
+ 'CaseDTO': '',
+ 'ExternalVisitDTO': '',
+ 'ScheduleDTO': '',
+ 'TravelSegmentDTO': '기사 본인 일정표의 조회용 계산 결과이다. 작업 구간과 구분하며 시각은 서버의 초 단위를 유지한다.',
+ 'TravelEndpointDTO': '본인 일정 식별자·대표 위치만 반환하며 고객 이름·연락처·상세 주소는 포함하지 않는다.',
+ 'ReferenceVersionsDTO': '',
+ 'DurationEstimateDTO': '',
+ 'CandidateDTO': '',
+ 'ScoredCaseDTO': '',
+ 'CaseRecommendationDTO': '',
+ 'CaseRecommendationsDTO': '',
+ 'RouteCandidateDTO': '요청·계정 ID, 자유 증상, 사진, 문답, 상세 주소·연락처는 반환하지 않는다.',
+ 'RouteCalculationDTO': '',
+ 'InterestDTO': '',
+ 'ConsultationDTO': '',
+ 'ConsultationQuoteContextDTO': '가림 처리된 공개 확인 전제이다. 상세 주소·연락처·원본 접근 주소·다른 항목 및 기사 관계 정보는 포함하지 '
+                                '않는다.\n'
+                                '\n'
+                                '\n'
+                                '| 전제 조건 | 조회 값·새 견적 발행 응답 |\n'
+                                '| --- | --- |\n'
+                                '| 전제·참조 근거·공개 확인은 그대로, 무관한 자료만 추가 | 기존 quoteContext·deliveryId '
+                                '유지; 전체 항목 sourceRevision 차이만으로 거절하지 않음 |\n'
+                                '| 공통·항목 사실 버전 변경 | quoteContext는 `null`; 발행은 `409 '
+                                'VERSION_CONFLICT` |\n'
+                                '| 실제 참조 근거 정정·삭제 | quoteContext는 `null`; 발행은 `409 STALE_SOURCE` '
+                                '|\n'
+                                '| 공개 범위·가림·사용자 확인 무효 | quoteContext는 `null`; 발행은 `409 '
+                                'DELIVERY_NOT_CONFIRMED` |\n'
+                                '| 상담 종료·선택 해제 | quoteContext는 `null`; 발행은 `409 '
+                                'CONSULTATION_NOT_ACTIVE` |',
+ 'ConsultationWorkItemFactsDTO': '조회 전용이며 사용자가 공개 확인한 가림 결과만 반환한다.',
+ 'RelationEventDTO': '',
+ 'QuoteVersionsDTO': '',
+ 'CostLineDTO': '',
+ 'CostDTO': '최소 비용의 생략·`null`은 `0`과 다르며 `INVALID_COST`이다. 명시적으로 없음이 확인된 경우 `0`을 입력한다.',
+ 'PriceSummaryDTO': '',
+ 'QuoteTermsDTO': '응답의 QuoteDTO.endAt은 `startAt + durationMinutes`이다.',
+ 'QuoteDTO': '',
+ 'ScheduleCheckDTO': '',
+ 'ReservationCheckDTO': '`checkId`는 처리 종류·대상·당시 조건을 묶는 불투명 식별값이며 예약 보장이 아니다.',
+ 'VisitOverlapDTO': '요청 소유자 전용이다. 기사 응답의 overlaps는 `null`이며 상대 예약·항목·기사·시간을 별도 필드로 제공하지 않는다.',
+ 'OverlapConfirmationDTO': '사용자 입력 전용이며 기사는 전송하지 않는다. 유효한 저장 확인이 있거나 중복이 없으면 입력을 생략할 수 있다.\n'
+                           '\n'
+                           '\n'
+                           '| 입력·확인 조건 | 계약 |\n'
+                           '| --- | --- |\n'
+                           '| 변경안 확인 | 검사한 changeId·변경 버전에 연결된 checkId 사용; 다른 변경안 버전에는 재사용 불가 |\n'
+                           '| 일반 시작·일반 START_WORK 확인 저장 | 시간 경과로 중복 구간만 줄고 상대 예약·합의·조건·종료 예상이 유지되면 '
+                           '저장한 확인 사용 가능 |\n'
+                           '| 실제 조기 시작 | 같은 예약·현재 동의에 연결된 확인이며 현재 중복이 확인 범위 안이면 사용 가능; 실제 시각은 '
+                           'proposedStartAt보다 이를 수 있음 |\n'
+                           '| 새로운 중복·확인 범위 확대·조건 변경 | 새 검사·확인 필요; 반영은 `409 '
+                           'OVERLAP_CONFIRMATION_REQUIRED`, 낡은 검사 확인 저장은 `409 STALE_CHECK` |\n'
+                           '| 조기 시작 동의 전 확인 저장 | 아직 부여하지 않은 동의는 필수 입력이 아님; 동의 자체는 별도 API 사용 |',
+ 'ReservationChangeTermsInputDTO': '주소·연락처·region은 직접 받지 않는다. `visitDetailsRevision` 생략 시 기존 방문 '
+                                   '정보를 유지한다.',
+ 'AgreementTermsDTO': '확정 합의·변경안의 조회용 조건이다. 변경 입력은 ReservationChangeTermsInputDTO를 사용한다.',
+ 'AgreementDTO': '',
+ 'ReservationChangeDTO': '',
+ 'ReservationDTO': '',
+ 'EarlyStartConsentDTO': '실제 시작은 서버 시각으로 반환하며 proposedStartAt은 검사·확인용 입력이다. 비활성 기록도 revision을 '
+                         '유지한다.',
+ 'PerformanceDTO': '완료·중단 입력과 수행 조회의 공용 구조이다. 종료 시각은 ReservationDTO.actualEndedAt으로 반환한다.',
+ 'PreparationDTO': '',
+ 'DeliveryScopeDTO': '',
+ 'RedactionDTO': '텍스트 경로는 아래 DTO 기준이며 {i}·{j}는 0부터 시작하는 배열 인덱스이다. 원본 수정 입력과 구분한다.\n'
+                 '\n'
+                 '| 대상 | 경로 기준 | 허용하는 텍스트 `fieldPath` |\n'
+                 '| --- | --- | --- |\n'
+                 '| `PHOTO` | 해당 `photoId`의 PhotoEvidenceDTO | `observation`, '
+                 '`regions.{i}.description` |\n'
+                 '| `RECORD` | 해당 `recordId`의 RecordDTO | `record.description`, `outcome.action`, '
+                 '`outcome.description` |\n'
+                 '| `QUESTION` | 해당 `questionId`의 QuestionDTO | `text`, `answer`, '
+                 '`options.{i}.label` |\n'
+                 '| `SUMMARY` | 해당 항목의 SummaryDTO | `text`, `facts.{i}.text`, `unknowns.{i}`, '
+                 '`riskSignals.{i}`, `limitations.{i}` |\n'
+                 '| `REPORT` | 해당 항목의 ReportContentDTO | `content.markdown`, '
+                 '`content.facts.{i}.text`, `content.unknowns.{i}`, `photos.{i}.observation`, '
+                 '`photos.{i}.regions.{j}.description` |\n'
+                 '| `QUOTE_CONTEXT` | 해당 항목의 ConsultationQuoteContextDTO | `facts.part`, '
+                 '`facts.workType`, `facts.otherField`, `facts.product.productType`, '
+                 '`facts.product.manufacturer`, `facts.product.modelName` |\n'
+                 '\n'
+                 '\n'
+                 '**가림 입력 조합**\n'
+                 '\n'
+                 '| 가림 종류 | 입력 조건 |\n'
+                 '| --- | --- |\n'
+                 '| 텍스트 대체 | fieldPath·replacementText 필수; 지정 문자열 전체의 가린 값 |\n'
+                 '| 문자열 제외 | fieldPath와 exclude=true; nullable 문자열만 null로 제외 가능 |\n'
+                 '| 자료 전체 제외 | fieldPath 생략 또는 null, exclude=true; 목적별 필수 본문·견적 전제 전체 제외 불가 |\n'
+                 '| 사진 픽셀·파일명 | fieldPath 없이 boxes·safeFilename 사용; boxes는 없으면 빈 배열 |\n'
+                 '| 잘못된 경로·인덱스·중복 지시·비문자열 변경 | 422 VALIDATION_ERROR |',
+ 'PhotoEvidenceDTO': '',
+ 'ReportBodyDTO': '',
+ 'ReportContentDTO': '',
+ 'ReportDTO': '',
+ 'DeliveryContentDTO': '가림 결과만 반환한다. 원본 저장 경로·외부 PDF의 상세 방문 정보는 포함하지 않는다.',
+ 'DeliveryDTO': '필드의 권한·상태별 반환은 아래 표를 따른다. quoteContext 유효성과 전달본 본문 제공 여부는 별개이다.',
+ 'PdfJobDTO': '파일 조회 경로는 인증된 `/pdf-jobs/{jobId}/content`이다.',
+ 'DeletionJobDTO': '',
+ 'FieldErrorDTO': '',
+ 'ResourceStateDTO': ''}
+
+TAGS = [{'name': 'Authentication', 'description': '인증·역할'},
+ {'name': 'Public', 'description': '공개 정보·직접 연락'},
+ {'name': 'Requests', 'description': '요청·작업 항목·해결 경로'},
+ {'name': 'History', 'description': '사진·경과 기록'},
+ {'name': 'AI', 'description': 'AI 작업·문답'},
+ {'name': 'Technicians', 'description': '기사 프로필·사례·일정'},
+ {'name': 'Matching', 'description': '사례 매칭·동선 탐색'},
+ {'name': 'Consultations', 'description': '상담 관계·견적'},
+ {'name': 'Reservations', 'description': '예약·변경 합의'},
+ {'name': 'Work', 'description': '실제 작업·방문 준비'},
+ {'name': 'Handover', 'description': '전달본·보고서·PDF'},
+ {'name': 'Deletion', 'description': '본인 자료 삭제'}]
+
 ENDPOINTS = [{'method': 'POST',
   'path': '/auth/login',
   'summary': '테스트 계정 로그인',
+  'tag': 'Authentication',
+  'description': '- **인증 요구사항**: ❌\n'
+                 '- **선행 조건**: 사전 발급 계정\n'
+                 '- **설명**: 발급 계정으로 로그인하고 세션 쿠키와 계정·역할 정보를 반환한다.',
+  'path_parameters': [],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | SessionDTO | 처리 결과 |',
+  'response_headers': {'Set-Cookie': '세션 쿠키; 이름·속성은 공통 미정 항목 참조'},
+  'errors': {'401': ['테스트 계정 인증 실패 (`INVALID_CREDENTIALS`)']},
   'status': 200,
   'response': 'SessionDTO',
   'authenticated': False,
@@ -2640,6 +3182,14 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'POST',
   'path': '/auth/logout',
   'summary': '로그아웃',
+  'tag': 'Authentication',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 계정 본인\n'
+                 '- **설명**: 현재 세션을 종료하고 로그인 쿠키를 만료시킨다. 요청 본문은 없다.',
+  'path_parameters': [],
+  'response_description': '응답 본문 없음.',
+  'response_headers': {'Set-Cookie': '로그인 쿠키와 동일한 이름·범위의 만료 쿠키; 세부 값 미정'},
+  'errors': {},
   'status': 204,
   'response': None,
   'authenticated': True,
@@ -2650,6 +3200,12 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'GET',
   'path': '/auth/me',
   'summary': '현재 계정·역할 조회',
+  'tag': 'Authentication',
+  'description': '- **인증 요구사항**: ✅\n- **선행 조건**: 계정 본인\n- **설명**: 현재 계정·활성 역할·연결 기사 식별자를 반환한다.',
+  'path_parameters': [],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | SessionDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {},
   'status': 200,
   'response': 'SessionDTO',
   'authenticated': True,
@@ -2660,6 +3216,12 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'PATCH',
   'path': '/auth/role',
   'summary': '활성 역할 전환',
+  'tag': 'Authentication',
+  'description': '- **인증 요구사항**: ✅\n- **선행 조건**: 계정 본인\n- **설명**: 허용 역할 중 선택한 활성 역할과 계정 정보를 반환한다.',
+  'path_parameters': [],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | SessionDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'403': ['허용되지 않은 역할 또는 액션 (`ROLE_FORBIDDEN`)']},
   'status': 200,
   'response': 'SessionDTO',
   'authenticated': True,
@@ -2673,6 +3235,14 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'GET',
   'path': '/public/service-info',
   'summary': '소개·지원 범위 조회',
+  'tag': 'Public',
+  'description': '- **인증 요구사항**: ❌\n- **설명**: 소개·지원 분야·지원 지역·기준 자료 버전·재촬영 안내를 반환한다.',
+  'path_parameters': [],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | ServiceInfoDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {},
   'status': 200,
   'response': 'ServiceInfoDTO',
   'authenticated': False,
@@ -2683,6 +3253,19 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'GET',
   'path': '/public/technicians',
   'summary': '공개 기사 연락 목록',
+  'tag': 'Public',
+  'description': '- **인증 요구사항**: ❌\n'
+                 '- **설명**: 공개 연락수단이 있는 기사의 공개 프로필을 페이지로 반환한다.\n'
+                 '\n'
+                 '**정렬**\n'
+                 '\n'
+                 '`technicianId` 오름차순. 기사 ID는 목록에서 유일하며 표시명 변경으로 순서를 바꾸지 않는다.',
+  'path_parameters': [],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | PageDTO<PublicTechnicianDTO> | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'422': ['전문 분야·지역 필터 또는 cursor·limit 형식·범위 오류 (`VALIDATION_ERROR`)']},
   'status': 200,
   'response': 'PageDTO<PublicTechnicianDTO>',
   'authenticated': False,
@@ -2708,6 +3291,16 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'GET',
   'path': '/public/technicians/{technicianId}',
   'summary': '공개 기사 프로필 조회',
+  'tag': 'Public',
+  'description': '- **인증 요구사항**: ❌\n- **설명**: 표시명·분야·지역·공개 중인 업무 연락수단을 반환한다.',
+  'path_parameters': [{'name': 'technicianId',
+                       'type': 'string',
+                       'description': '기사 자원 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | PublicTechnicianDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'404': ['대상 없음·삭제됨; 권한 밖 존재 여부 노출도 차단 (`RESOURCE_NOT_FOUND`)']},
   'status': 200,
   'response': 'PublicTechnicianDTO',
   'authenticated': False,
@@ -2718,6 +3311,13 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'GET',
   'path': '/public/guidance',
   'summary': '긴급·공식 안내 조회',
+  'tag': 'Public',
+  'description': '- **인증 요구사항**: ❌\n- **설명**: 검증 가이드와 공식 경로를 각각 상태·보완 입력·사유와 함께 반환한다.',
+  'path_parameters': [],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | GuidanceDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'422': ['type 누락·미지원 코드 또는 triggerId·제품 정보 쿼리 형식 오류; 정상 정보 부족은 안내 결과의 '
+                     'INFORMATION_REQUIRED로 구분 (`VALIDATION_ERROR`)']},
   'status': 200,
   'response': 'GuidanceDTO',
   'authenticated': False,
@@ -2744,6 +3344,14 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'POST',
   'path': '/requests',
   'summary': '사진·증상 최초 접수',
+  'tag': 'Requests',
+  'description': '- **인증 요구사항**: ✅\n- **선행 조건**: 본인\n- **설명**: 사진·증상으로 요청과 기본 작업 항목 하나를 생성하여 반환한다.',
+  'path_parameters': [],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | RequestDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'413': ['사용자 요청 사진 파일당 10,000,000 Byte 초과 (`FILE_TOO_LARGE`)'],
+             '415': ['실제 파일 형식 또는 Content-Type 미지원 (`UNSUPPORTED_MEDIA_TYPE`)'],
+             '422': ['묶음 내 손상 이미지·메타정보 불일치·파일별 오류; 전부 미저장 (`UPLOAD_BATCH_REJECTED`)']},
   'status': 201,
   'response': 'RequestDTO',
   'authenticated': True,
@@ -2761,6 +3369,20 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'GET',
   'path': '/requests',
   'summary': '본인 요청 목록',
+  'tag': 'Requests',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 본인\n'
+                 '- **설명**: 본인 요청과 항목별 상태의 요약 목록을 반환한다.\n'
+                 '\n'
+                 '**정렬**\n'
+                 '\n'
+                 '`updatedAt` 내림차순 → 동률 `requestId` 내림차순.',
+  'path_parameters': [],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | PageDTO<RequestListItemDTO> | 처리 결과 |',
+  'response_headers': {},
+  'errors': {},
   'status': 200,
   'response': 'PageDTO<RequestListItemDTO>',
   'authenticated': True,
@@ -2782,6 +3404,12 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'GET',
   'path': '/requests/{requestId}',
   'summary': '요청 상세·이력 조회',
+  'tag': 'Requests',
+  'description': '- **인증 요구사항**: ✅\n- **선행 조건**: 본인\n- **설명**: 공통 자료·작업 항목·연결 이력을 반환한다.',
+  'path_parameters': [{'name': 'requestId', 'type': 'string', 'description': '요청 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | RequestDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {},
   'status': 200,
   'response': 'RequestDTO',
   'authenticated': True,
@@ -2792,6 +3420,13 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'PATCH',
   'path': '/requests/{requestId}',
   'summary': '공통 증상·지역 정정',
+  'tag': 'Requests',
+  'description': '- **인증 요구사항**: ✅\n- **선행 조건**: 본인\n- **설명**: 공통 증상·지역을 수정하고 현재 요청을 반환한다.',
+  'path_parameters': [{'name': 'requestId', 'type': 'string', 'description': '요청 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | RequestDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'409': ['조회한 리소스·전제·합의 버전과 현재 값이 다름 (`VERSION_CONFLICT`)',
+                     '전체 종료 또는 삭제 중인 요청에 새 관계·자료 생성 시도 (`RESOURCE_CLOSED`)']},
   'status': 200,
   'response': 'RequestDTO',
   'authenticated': True,
@@ -2818,6 +3453,20 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'PUT',
   'path': '/requests/{requestId}/visit-details',
   'summary': '상세 방문 정보 확인',
+  'tag': 'Requests',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 본인\n'
+                 '- **설명**: 확인한 상세 방문 정보와 확인 버전을 반환한다.\n'
+                 '\n'
+                 '**재전송 응답**\n'
+                 '\n'
+                 '성공 후 이전 `expectedRevision`으로 재전송하면 `409 VERSION_CONFLICT`이다. `GET '
+                 '/requests/{requestId}`로 현재 방문 정보·버전을 확인한다. 기대값만 바꾼 자동 재제출은 하지 않는다.',
+  'path_parameters': [{'name': 'requestId', 'type': 'string', 'description': '요청 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | RequestDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'422': ['상세 주소와 입력 작업 지역 불일치 (`ADDRESS_REGION_MISMATCH`)'],
+             '409': ['조회한 리소스·전제·합의 버전과 현재 값이 다름 (`VERSION_CONFLICT`)']},
   'status': 200,
   'response': 'RequestDTO',
   'authenticated': True,
@@ -2840,6 +3489,13 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'POST',
   'path': '/requests/{requestId}/closure',
   'summary': '요청 전체 종료',
+  'tag': 'Requests',
+  'description': '- **인증 요구사항**: ✅\n- **선행 조건**: 본인\n- **설명**: 항목별 종료 선택을 입력받아 요청의 종료 결과를 반환한다.',
+  'path_parameters': [{'name': 'requestId', 'type': 'string', 'description': '요청 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | RequestDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'409': ['일반 기록·전체 삭제 또는 전체 종료를 막는 활성 관계 (`ACTIVE_RELATION_EXISTS`)',
+                     '조회한 리소스·전제·합의 버전과 현재 값이 다름 (`VERSION_CONFLICT`)']},
   'status': 200,
   'response': 'RequestDTO',
   'authenticated': True,
@@ -2857,6 +3513,13 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'POST',
   'path': '/requests/{requestId}/work-items',
   'summary': '독립 작업 항목 추가',
+  'tag': 'Requests',
+  'description': '- **인증 요구사항**: ✅\n- **선행 조건**: 본인\n- **설명**: 확인한 작업 사실로 독립 작업 항목을 추가한다.',
+  'path_parameters': [{'name': 'requestId', 'type': 'string', 'description': '요청 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | WorkItemDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'409': ['전체 종료 또는 삭제 중인 요청에 새 관계·자료 생성 시도 (`RESOURCE_CLOSED`)'],
+             '422': ['작업 사실의 필드 타입·수량·분야·방문 조건 오류 (`VALIDATION_ERROR`)']},
   'status': 201,
   'response': 'WorkItemDTO',
   'authenticated': True,
@@ -2874,6 +3537,16 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'PATCH',
   'path': '/work-items/{workItemId}',
   'summary': '작업 사실·해결 경로 변경',
+  'tag': 'Requests',
+  'description': '- **인증 요구사항**: ✅\n- **선행 조건**: 본인\n- **설명**: 작업 사실·방문 조건·해결 경로를 부분 수정한다.',
+  'path_parameters': [{'name': 'workItemId',
+                       'type': 'string',
+                       'description': '작업 항목 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | WorkItemDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'409': ['조회한 리소스·전제·합의 버전과 현재 값이 다름 (`VERSION_CONFLICT`)',
+                     '전체 종료 또는 삭제 중인 요청에 새 관계·자료 생성 시도 (`RESOURCE_CLOSED`)'],
+             '422': ['적용 조건을 충족하지 않은 가이드 실행 경로 선택 (`GUIDE_NOT_APPLICABLE`)']},
   'status': 200,
   'response': 'WorkItemDTO',
   'authenticated': True,
@@ -2895,6 +3568,15 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'PUT',
   'path': '/work-items/{workItemId}/confirmation',
   'summary': '요약·분야 사용자 확인',
+  'tag': 'Requests',
+  'description': '- **인증 요구사항**: ✅\n- **선행 조건**: 본인\n- **설명**: 요약·분야·근거 버전의 사용자 확인 결과를 저장한다.',
+  'path_parameters': [{'name': 'workItemId',
+                       'type': 'string',
+                       'description': '작업 항목 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | WorkItemDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'409': ['확인 대상 버전 불일치 (`VERSION_CONFLICT`)', '근거 자료가 변경·삭제됨 (`STALE_SOURCE`)'],
+             '422': ['요약·분야·기타 분야 설명 또는 confirmed 값 오류 (`VALIDATION_ERROR`)']},
   'status': 200,
   'response': 'WorkItemDTO',
   'authenticated': True,
@@ -2928,6 +3610,18 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'GET',
   'path': '/work-items/{workItemId}/solutions',
   'summary': '항목별 해결 안내',
+  'tag': 'Requests',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 본인\n'
+                 '- **설명**: 자가 해결과 공식 AS 각각의 상태·안내·보완 입력 및 선택 경로를 반환한다.',
+  'path_parameters': [{'name': 'workItemId',
+                       'type': 'string',
+                       'description': '작업 항목 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | SolutionsDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {},
   'status': 200,
   'response': 'SolutionsDTO',
   'authenticated': True,
@@ -2938,6 +3632,15 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'POST',
   'path': '/work-items/{workItemId}/outcomes',
   'summary': '자가 조치·외부 해결 결과 기록',
+  'tag': 'Requests',
+  'description': '- **인증 요구사항**: ✅\n- **선행 조건**: 본인\n- **설명**: 자가 조치·외부 해결 결과를 사용자 기록으로 저장한다.',
+  'path_parameters': [{'name': 'workItemId',
+                       'type': 'string',
+                       'description': '작업 항목 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | RecordDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'409': ['전체 종료 또는 삭제 중인 요청에 새 결과 기록 생성 시도 (`RESOURCE_CLOSED`)'],
+             '422': ['해결 경로·결과 코드·조치 설명·발생일 등 결과 기록 입력 오류 (`VALIDATION_ERROR`)']},
   'status': 201,
   'response': 'RecordDTO',
   'authenticated': True,
@@ -2951,6 +3654,18 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'POST',
   'path': '/requests/{requestId}/photos',
   'summary': '추가 사진 업로드',
+  'tag': 'History',
+  'description': '- **인증 요구사항**: ✅\n- **선행 조건**: 본인\n- **설명**: 파일과 촬영일·설명·항목 연결을 입력받아 추가 사진을 반환한다.',
+  'path_parameters': [{'name': 'requestId', 'type': 'string', 'description': '요청 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | PhotoCollectionDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'409': ['전체 종료 또는 삭제 중인 요청에 새 사진 생성 시도 (`RESOURCE_CLOSED`)',
+                     '동시 업로드를 포함한 요청 저장 사진 30장 초과 (`PHOTO_LIMIT_EXCEEDED`)'],
+             '413': ['사용자 요청 사진 파일당 10,000,000 Byte 초과 (`FILE_TOO_LARGE`)'],
+             '415': ['실제 파일 형식 또는 Content-Type 미지원 (`UNSUPPORTED_MEDIA_TYPE`)'],
+             '422': ['묶음 내 손상 이미지·메타정보 불일치·파일별 오류; 전부 미저장 (`UPLOAD_BATCH_REJECTED`)']},
   'status': 201,
   'response': 'PhotoCollectionDTO',
   'authenticated': True,
@@ -2968,6 +3683,19 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'PUT',
   'path': '/photos/{photoId}',
   'summary': '사진·촬영일·설명 정정',
+  'tag': 'History',
+  'description': '- **인증 요구사항**: ✅\n- **선행 조건**: 본인\n- **설명**: 선택한 파일 교체와 현재 사진 메타정보를 저장한다.',
+  'path_parameters': [{'name': 'photoId',
+                       'type': 'string',
+                       'description': '사용자 요청 사진 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | PhotoDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'409': ['조회한 리소스·전제·합의 버전과 현재 값이 다름 (`VERSION_CONFLICT`)'],
+             '413': ['사용자 요청 사진 파일당 10,000,000 Byte 초과 (`FILE_TOO_LARGE`)'],
+             '415': ['실제 파일 형식 또는 Content-Type 미지원 (`UNSUPPORTED_MEDIA_TYPE`)'],
+             '422': ['교체 이미지 손상·파일과 메타정보 불일치; 전부 미저장 (`UPLOAD_BATCH_REJECTED`)',
+                     '수정 메타정보 필드 누락·잘못된 타입·촬영일 확인값 불일치 (`VALIDATION_ERROR`)',
+                     '다른 요청 소속 또는 삭제된 작업 항목 참조 (`INVALID_REFERENCE`)']},
   'status': 200,
   'response': 'PhotoDTO',
   'authenticated': True,
@@ -2990,6 +3718,20 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'GET',
   'path': '/media/{mediaId}',
   'summary': '권한 있는 이미지 조회',
+  'tag': 'History',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 자료 종류·관계 권한\n'
+                 '- **설명**: 현재 권한으로 조회 가능한 원본·전달본·포트폴리오 이미지 바이트를 반환한다.',
+  'path_parameters': [{'name': 'mediaId', 'type': 'string', 'description': '이미지 자원 식별자; 실제 형식 미정'}],
+  'response_description': '| 항목 | 값 |\n'
+                          '| --- | --- |\n'
+                          '| Content-Type | 요청 사진은 `image/jpeg` 또는 `image/png`; 포트폴리오 허용 형식은 미정 |\n'
+                          '| Body | 권한을 검사한 이미지 바이트 |\n'
+                          '| 방향·가림 | 분석 좌표와 같은 표시 방향; 전달본에는 가림 전 원본·메타데이터 없음 |',
+  'response_headers': {},
+  'errors': {'403': ['소유·관계·자료 범위 권한 없음; 비공개 최신 상태는 제공하지 않음 (`ACCESS_DENIED`)'],
+             '404': ['대상 없음·삭제됨; 권한 밖 존재 여부 노출도 차단 (`RESOURCE_NOT_FOUND`)'],
+             '409': ['처리 중·실패·갱신 필요·삭제 근거로 파생 자료 제공 불가 (`DERIVED_CONTENT_UNAVAILABLE`)']},
   'status': 200,
   'response': None,
   'authenticated': True,
@@ -3000,6 +3742,15 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'POST',
   'path': '/requests/{requestId}/records',
   'summary': '경과·보완 기록 추가',
+  'tag': 'History',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 본인\n'
+                 '- **설명**: 경과·조치·보완 설명을 날짜·사진·작업 항목과 연결하여 저장한다.',
+  'path_parameters': [{'name': 'requestId', 'type': 'string', 'description': '요청 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | RecordDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'409': ['전체 종료 또는 삭제 중인 요청에 새 기록 생성 시도 (`RESOURCE_CLOSED`)'],
+             '422': ['타 요청·타 항목·타 기사·삭제 자료 참조 (`INVALID_REFERENCE`)']},
   'status': 201,
   'response': 'RecordDTO',
   'authenticated': True,
@@ -3013,6 +3764,18 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'PATCH',
   'path': '/records/{recordId}',
   'summary': '본인 경과 기록 정정',
+  'tag': 'History',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 본인\n'
+                 '- **설명**: 기존 기록 종류에 맞는 `record` 또는 `outcome`을 입력받아 현재 기록을 반환한다.',
+  'path_parameters': [{'name': 'recordId',
+                       'type': 'string',
+                       'description': '사용자 기록 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | RecordDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'403': ['소유·관계·자료 범위 권한 없음; 비공개 최신 상태는 제공하지 않음 (`ACCESS_DENIED`)'],
+             '409': ['조회한 리소스·전제·합의 버전과 현재 값이 다름 (`VERSION_CONFLICT`)'],
+             '422': ['저장된 기록 종류와 입력 불일치 또는 `record`·`outcome` 동시 제출·모두 누락 (`VALIDATION_ERROR`)']},
   'status': 200,
   'response': 'RecordDTO',
   'authenticated': True,
@@ -3034,6 +3797,14 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'GET',
   'path': '/requests/{requestId}/timeline',
   'summary': '날짜별 경과·비교쌍 조회',
+  'tag': 'History',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 본인\n'
+                 '- **설명**: 촬영일별 사진·날짜 미확인 사진·기록·동일 부위 묶음을 반환한다.',
+  'path_parameters': [{'name': 'requestId', 'type': 'string', 'description': '요청 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | TimelineDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {},
   'status': 200,
   'response': 'TimelineDTO',
   'authenticated': True,
@@ -3044,6 +3815,13 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'PUT',
   'path': '/requests/{requestId}/photo-groups',
   'summary': '동일 부위 묶음·비교쌍 설정',
+  'tag': 'History',
+  'description': '- **인증 요구사항**: ✅\n- **선행 조건**: 본인\n- **설명**: 사진 묶음 전체 구성과 기본·수동 비교쌍 선택을 저장한다.',
+  'path_parameters': [{'name': 'requestId', 'type': 'string', 'description': '요청 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | TimelineDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'422': ['다른 부위·같은 사진·유효하지 않은 비교쌍 (`INVALID_COMPARISON_PAIR`)'],
+             '409': ['근거 자료가 변경·삭제됨 (`STALE_SOURCE`)']},
   'status': 200,
   'response': 'TimelineDTO',
   'authenticated': True,
@@ -3062,6 +3840,42 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'POST',
   'path': '/requests/{requestId}/ai-jobs',
   'summary': 'AI 작업 명시적 실행·재시도',
+  'tag': 'AI',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 본인\n'
+                 '- **설명**: 종류·대상·근거 버전으로 AI 작업을 접수하여 작업 ID를 반환한다.\n'
+                 '\n'
+                 '**종류별 대상·근거 버전**\n'
+                 '\n'
+                 '| `AiJobType` | 처리 단위 | `workItemId` | `photoGroupId` | `guideId` | '
+                 '`sourceRevision` 기준 |\n'
+                 '| --- | --- | --- | --- | --- | --- |\n'
+                 '| `DIAGNOSIS` | 작업 항목 | ✅ 필수 | 전송 금지 | 전송 금지 | 대상 `WorkItemDTO.sourceRevision` '
+                 '|\n'
+                 '| `QUESTION` | 요청 전체 | 전송 금지 | 전송 금지 | 전송 금지 | `RequestDTO.sourceRevision` |\n'
+                 '| `GUIDE_EXPLANATION` | 작업 항목·가이드 | ✅ 필수 | 전송 금지 | ✅ 필수 | 대상 '
+                 '`WorkItemDTO.sourceRevision`; 가이드 출처·버전도 서버가 함께 검사 |\n'
+                 '| `CASE_MATCHING` | 작업 항목 | ✅ 필수 | 전송 금지 | 전송 금지 | 대상 '
+                 '`WorkItemDTO.sourceRevision` |\n'
+                 '| `PHOTO_COMPARISON` | 요청의 사진 묶음 | 전송 금지 | ✅ 필수 | 전송 금지 | 대상 '
+                 '`PhotoGroupDTO.sourceRevision`; 해당 묶음의 비교 근거만 검사 |\n'
+                 '| `REPORT_DRAFT` | 작업 항목 | ✅ 필수 | 전송 금지 | 전송 금지 | 대상 '
+                 '`WorkItemDTO.sourceRevision` |',
+  'path_parameters': [{'name': 'requestId', 'type': 'string', 'description': '요청 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | AiJobDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'409': ['근거 자료가 변경·삭제됨 (`STALE_SOURCE`)',
+                     '새 `QUESTION` 접수 시 요청 전체 질문 5개가 이미 발행됨 (`QUESTION_LIMIT_REACHED`)',
+                     '한도 도달 전 문답이 종료됨, 생성 중·답변 대기 질문이 있음, 또는 수동 재시도 대상이 실패·시간 초과 작업이 아님 '
+                     '(`INVALID_STATE`)',
+                     '전체 종료 또는 삭제 중인 요청에 새 AI 작업 접수 시도 (`RESOURCE_CLOSED`)',
+                     '`CASE_MATCHING`에 필요한 기준 자료 누락으로 해당 평가 자체를 수행할 수 없음; 사례 없음·시간 적합성 미확인만으로 적용하지 '
+                     '않음 (`REFERENCE_DATA_MISSING`)'],
+             '422': ['종류별 필수·금지 필드 또는 대상 소속 조건 위반 (`VALIDATION_ERROR`)',
+                     '`CASE_MATCHING`의 조건 충족 추천 대상이 서울 밖 또는 미지원 분야임 (`SERVICE_UNSUPPORTED`)',
+                     '벽지 물자국 외 사진 변화 분석 (`ANALYSIS_NOT_SUPPORTED`)',
+                     '해당 기능의 필수 정보·사진 근거 부족; 지원 대상의 유효한 사진 묶음에서 비교쌍을 구성할 사진이 부족한 정상 미수행에는 적용하지 않음 '
+                     '(`INSUFFICIENT_INPUT`)']},
   'status': 202,
   'response': 'AiJobDTO',
   'authenticated': True,
@@ -3096,6 +3910,19 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'GET',
   'path': '/requests/{requestId}/ai-jobs',
   'summary': '요청별 AI 작업·결과 이력 조회',
+  'tag': 'AI',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 요청 소유자\n'
+                 '- **설명**: 종류·대상별 작업 ID·상태·결과·실패 및 재시도 이력을 반환한다.',
+  'path_parameters': [{'name': 'requestId', 'type': 'string', 'description': '본인 요청 식별자'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | PageDTO<AiJobDTO> | 현재 권한의 작업 이력; `receivedAt` 내림차순·동률 '
+                          '`jobId` 내림차순; 실패·시간 초과 포함 |\n'
+                          '| `data.items` | AiJobDTO[] | AI 미실행 또는 필터 일치 작업이 없으면 빈 배열; 실패는 작업 항목의 '
+                          '`error`로 구분 |',
+  'response_headers': {},
+  'errors': {'422': ['종류와 양립할 수 없는 대상 필터 또는 잘못된 페이지 입력 (`VALIDATION_ERROR`)']},
   'status': 200,
   'response': 'PageDTO<AiJobDTO>',
   'authenticated': True,
@@ -3129,6 +3956,14 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'GET',
   'path': '/ai-jobs/{jobId}',
   'summary': 'AI 상태·결과·오류 조회',
+  'tag': 'AI',
+  'description': '- **인증 요구사항**: ✅\n- **선행 조건**: 본인\n- **설명**: 저장된 AI 작업의 상태·종류별 결과·오류를 반환한다.',
+  'path_parameters': [{'name': 'jobId',
+                       'type': 'string',
+                       'description': '해당 종류의 비동기 작업 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | AiJobDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {},
   'status': 200,
   'response': 'AiJobDTO',
   'authenticated': True,
@@ -3139,6 +3974,25 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'PUT',
   'path': '/requests/{requestId}/ai-dialogue',
   'summary': '답변·건너뛰기·문답 종료',
+  'tag': 'AI',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 본인\n'
+                 '- **설명**: 현재 질문의 답변·건너뛰기 또는 문답 종료 결과를 반환한다.\n'
+                 '\n'
+                 '**동일 입력 재전송 응답**\n'
+                 '\n'
+                 '| 입력 | 응답 |\n'
+                 '| --- | --- |\n'
+                 '| 이미 저장한 같은 질문·액션·답변 또는 종료된 문답의 `FINISH` | 현재 DialogueDTO, `200`; 해당 처리에 소비된 과거 '
+                 '기대값만으로 충돌 처리하지 않음 |\n'
+                 '| 처리한 질문에 다른 답변·액션 | `409 INVALID_STATE` |',
+  'path_parameters': [{'name': 'requestId', 'type': 'string', 'description': '요청 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | DialogueDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'409': ['현재 답변 대기 질문이 아님, 종료된 문답에 새 답변 제출, 또는 이미 처리한 질문의 답변·처리를 변경하려 함 '
+                     '(`INVALID_STATE`)',
+                     '조회한 리소스·전제·합의 버전과 현재 값이 다름 (`VERSION_CONFLICT`)'],
+             '422': ['액션별 필수·금지 필드 또는 질문 선택지 조건 위반 (`VALIDATION_ERROR`)']},
   'status': 200,
   'response': 'DialogueDTO',
   'authenticated': True,
@@ -3168,6 +4022,14 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'GET',
   'path': '/technicians/me',
   'summary': '본인 기사 자원 조회',
+  'tag': 'Technicians',
+  'description': '- **인증 요구사항**: ✅\n- **선행 조건**: 기사 본인\n- **설명**: 본인 프로필·공개 설정·포트폴리오를 반환한다.',
+  'path_parameters': [],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | TechnicianDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {},
   'status': 200,
   'response': 'TechnicianDTO',
   'authenticated': True,
@@ -3178,6 +4040,17 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'PUT',
   'path': '/technicians/me/profile',
   'summary': '프로필 등록·수정',
+  'tag': 'Technicians',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 기사 본인\n'
+                 '- **설명**: 기대 버전과 프로필 전체 내용을 입력받아 현재 프로필을 반환한다.',
+  'path_parameters': [],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | TechnicianDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'409': ['다른 프로필 변경이 먼저 반영됨 (`VERSION_CONFLICT`)'],
+             '422': ['표시명·전문 분야·활동 지역·연락수단·대표 사진 등 프로필 입력 오류 (`VALIDATION_ERROR`)']},
   'status': 200,
   'response': 'TechnicianDTO',
   'authenticated': True,
@@ -3195,6 +4068,17 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'POST',
   'path': '/technicians/me/portfolio-photos',
   'summary': '본인 포트폴리오 사진 업로드',
+  'tag': 'Technicians',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 기사 본인\n'
+                 '- **설명**: 포트폴리오 사진과 출처 정보를 입력받아 미디어 목록을 반환한다.',
+  'path_parameters': [],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | MediaDTO[] | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'413': ['파일당 최대 Byte 초과; 상한은 공통 미정 항목 참조 (`FILE_TOO_LARGE`)'],
+             '415': ['허용 MIME 외 형식; 허용 목록은 공통 미정 항목 참조 (`UNSUPPORTED_MEDIA_TYPE`)'],
+             '422': ['허용 파일 파트 수 초과·누락; 상한은 공통 미정 항목 참조 (`VALIDATION_ERROR`)',
+                     '준비 자료 출처·사용 가능 여부·비식별 검증 실패 (`SOURCE_NOT_VERIFIED`)']},
   'status': 201,
   'response': 'MediaDTO[]',
   'authenticated': True,
@@ -3212,6 +4096,18 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'GET',
   'path': '/technicians/{technicianId}/portfolio',
   'summary': '포트폴리오·사례 목록 조회',
+  'tag': 'Technicians',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 로그인; 공개 검증 자료\n'
+                 '- **설명**: 본인 자료 또는 타인에게 공개 가능한 사진·사례 목록을 반환한다.',
+  'path_parameters': [{'name': 'technicianId',
+                       'type': 'string',
+                       'description': '기사 자원 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | PortfolioDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {},
   'status': 200,
   'response': 'PortfolioDTO',
   'authenticated': True,
@@ -3222,6 +4118,13 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'POST',
   'path': '/technicians/me/cases',
   'summary': '준비된 시공 사례 등록',
+  'tag': 'Technicians',
+  'description': '- **인증 요구사항**: ✅\n- **선행 조건**: 기사 본인\n- **설명**: 본인 자료에 연결한 시공 사례를 생성한다.',
+  'path_parameters': [],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | CaseDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'422': ['준비 자료 출처·사용 가능 여부·비식별 검증 실패 (`SOURCE_NOT_VERIFIED`)',
+                     '타 요청·타 항목·타 기사·삭제 자료 참조 (`INVALID_REFERENCE`)']},
   'status': 201,
   'response': 'CaseDTO',
   'authenticated': True,
@@ -3235,6 +4138,13 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'PATCH',
   'path': '/technicians/me/cases/{caseId}',
   'summary': '본인 사례 정정',
+  'tag': 'Technicians',
+  'description': '- **인증 요구사항**: ✅\n- **선행 조건**: 기사 본인\n- **설명**: 기대 버전과 사례 내용을 입력받아 수정한 사례를 반환한다.',
+  'path_parameters': [{'name': 'caseId', 'type': 'string', 'description': '시공 사례 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | CaseDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'409': ['조회한 리소스·전제·합의 버전과 현재 값이 다름 (`VERSION_CONFLICT`)'],
+             '422': ['준비 자료 출처·사용 가능 여부·비식별 검증 실패 (`SOURCE_NOT_VERIFIED`)']},
   'status': 200,
   'response': 'CaseDTO',
   'authenticated': True,
@@ -3252,6 +4162,14 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'GET',
   'path': '/cases/{caseId}',
   'summary': '사례 상세 조회',
+  'tag': 'Technicians',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 로그인; 공개 검증 자료\n'
+                 '- **설명**: 현재 권한으로 조회 가능한 사례 내용·출처·전후 사진을 반환한다.',
+  'path_parameters': [{'name': 'caseId', 'type': 'string', 'description': '시공 사례 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | CaseDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'404': ['대상 없음·삭제됨; 권한 밖 존재 여부 노출도 차단 (`RESOURCE_NOT_FOUND`)']},
   'status': 200,
   'response': 'CaseDTO',
   'authenticated': True,
@@ -3262,6 +4180,14 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'GET',
   'path': '/technicians/me/schedule',
   'summary': '본인 일정표 조회',
+  'tag': 'Technicians',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 기사 본인\n'
+                 '- **설명**: 날짜 범위의 가능 시간·외부 일정·예약·이동 구간·검사 결과를 반환한다.',
+  'path_parameters': [],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | ScheduleDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'422': ['from·to 누락·날짜 형식·범위 오류; from은 to 이후일 수 없음 (`VALIDATION_ERROR`)']},
   'status': 200,
   'response': 'ScheduleDTO',
   'authenticated': True,
@@ -3276,6 +4202,17 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'PUT',
   'path': '/technicians/me/schedule',
   'summary': '가능 시간·외부 일정 변경',
+  'tag': 'Technicians',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 기사 본인\n'
+                 '- **설명**: 지정 날짜 범위의 편집 가능한 일정 전체를 입력받아 일정표를 반환한다.',
+  'path_parameters': [],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | ScheduleDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'409': ['일정 변경이 예약·작업·이동과 충돌; `checks[].reservationIds`에 권한 있는 충돌 예약을 반환 '
+                     '(`TECHNICIAN_CONFLICT`)',
+                     '조회한 리소스·전제·합의 버전과 현재 값이 다름 (`VERSION_CONFLICT`)',
+                     '서울 동·이동·작업 기준 자료 부족으로 필요한 검사 불가 (`REFERENCE_DATA_MISSING`)']},
   'status': 200,
   'response': 'ScheduleDTO',
   'authenticated': True,
@@ -3299,6 +4236,17 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'GET',
   'path': '/work-items/{workItemId}/case-recommendations',
   'summary': '사례 기반 기사 추천 조회',
+  'tag': 'Matching',
+  'description': '- **인증 요구사항**: ✅\n- **선행 조건**: 본인\n- **설명**: 사례 평가 상태·추천 기사·점수·근거·미완료 사유를 반환한다.',
+  'path_parameters': [{'name': 'workItemId',
+                       'type': 'string',
+                       'description': '작업 항목 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | CaseRecommendationsDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'422': ['해당 기능의 필수 정보·사진 근거 부족 (`INSUFFICIENT_INPUT`)',
+                     '서울 밖 또는 확인 분야가 모두 미지원인 항목의 조건 충족 추천 요청 (`SERVICE_UNSUPPORTED`)']},
   'status': 200,
   'response': 'CaseRecommendationsDTO',
   'authenticated': True,
@@ -3309,6 +4257,24 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'GET',
   'path': '/work-items/{workItemId}/general-candidates',
   'summary': '일반 기사 후보 조회',
+  'tag': 'Matching',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 본인\n'
+                 '- **설명**: 분야·지역·시간 적합성과 미확인 사유를 포함한 일반 기사 후보를 반환한다.\n'
+                 '\n'
+                 '**정렬**\n'
+                 '\n'
+                 '`technician.technicianId` 오름차순. 사례 점수나 시간 적합성으로 순서를 바꾸지 않는다.',
+  'path_parameters': [{'name': 'workItemId',
+                       'type': 'string',
+                       'description': '작업 항목 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | PageDTO<CandidateDTO> | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'422': ['후보 분야·지역을 판별할 사용자 확인 정보 부족; 사진쌍·사례·추정 소요 시간 부재만으로는 거절하지 않음 '
+                     '(`INSUFFICIENT_INPUT`)',
+                     '서울 밖 또는 확인 분야가 모두 미지원인 항목의 조건 충족 후보 요청 (`SERVICE_UNSUPPORTED`)']},
   'status': 200,
   'response': 'PageDTO<CandidateDTO>',
   'authenticated': True,
@@ -3326,6 +4292,25 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'PUT',
   'path': '/work-items/{workItemId}/route-exploration',
   'summary': '동선 탐색 공개·중단',
+  'tag': 'Matching',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 본인\n'
+                 '- **설명**: 최소 공개 확인과 동선 탐색 활성 여부를 저장한다.\n'
+                 '\n'
+                 '**재전송 응답**\n'
+                 '\n'
+                 '성공 후 이전 `expectedRevision`으로 재전송하면 `409 VERSION_CONFLICT`이다. 상위 `GET '
+                 '/requests/{requestId}`의 `workItems`에서 해당 항목의 활성 여부·버전을 확인한다. 기대값만 바꾼 자동 재제출은 하지 '
+                 '않는다.',
+  'path_parameters': [{'name': 'workItemId',
+                       'type': 'string',
+                       'description': '작업 항목 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | WorkItemDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'422': ['`enabled=true`인데 확인 분야·지역·방문 조건 또는 최소 공개 확인 부족; 추정 시간 미확인만으로는 거절하지 않음 '
+                     '(`INSUFFICIENT_INPUT`)',
+                     '`enabled=true`인데 서울 밖 또는 확인 분야가 모두 미지원 (`SERVICE_UNSUPPORTED`)'],
+             '409': ['조회한 리소스·전제·합의 버전과 현재 값이 다름 (`VERSION_CONFLICT`)']},
   'status': 200,
   'response': 'WorkItemDTO',
   'authenticated': True,
@@ -3347,6 +4332,32 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'GET',
   'path': '/technicians/me/route-candidates',
   'summary': '기사 동선 추천 작업 조회',
+  'tag': 'Matching',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 기사 본인\n'
+                 '- **설명**: 공개 확인된 최소 작업 정보·시간 적합성·동선 계산 근거를 반환한다.\n'
+                 '\n'
+                 '**정렬**\n'
+                 '\n'
+                 '아래 그룹 순서로 반환하며, 각 그룹 안에서 명시한 키를 왼쪽부터 적용한다. 조회한 `date`에서 삽입 가능한 구간이 여러 개이면 추가 이동 '
+                 '시간이 가장 작은 구간의 `route.additionalMinutes`를 사용한다.\n'
+                 '\n'
+                 '| 순서 | 응답 조건 | 그룹 내 정렬 |\n'
+                 '| --- | --- | --- |\n'
+                 '| 1 | `timeFit=MATCHED`, `route != null` | `route.additionalMinutes` 오름차순 → 요청 '
+                 '접수 시각 오름차순 → `candidateId` 오름차순 |\n'
+                 '| 2 | `timeFit=MATCHED`, `route=null`; 효율만 미산정 | 요청 접수 시각 오름차순 → `candidateId` '
+                 '오름차순 |\n'
+                 '| 3 | `timeFit=UNKNOWN`; 작업·이동 검사 보완 필요 | 요청 접수 시각 오름차순 → `candidateId` 오름차순 |\n'
+                 '\n'
+                 '`NOT_MATCHED` 항목은 목록에서 제외한다. 미산정은 0분으로 취급하지 않으며, 요청 접수 시각은 서버 정렬용 값으로 응답에 추가하지 '
+                 '않는다. 정렬 근거는 [요구사항 §6.4](요구사항명세서(기능들).md#64-동선-추천의-비교-기준)를 따른다.',
+  'path_parameters': [],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | PageDTO<RouteCandidateDTO> | 처리 결과 |',
+  'response_headers': {},
+  'errors': {},
   'status': 200,
   'response': 'PageDTO<RouteCandidateDTO>',
   'authenticated': True,
@@ -3369,6 +4380,17 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'POST',
   'path': '/route-candidates/{candidateId}/interests',
   'summary': '상담 참여 의사 표시',
+  'tag': 'Matching',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 기사 본인; 탐색 공개 중\n'
+                 '- **설명**: 추천 작업에 대한 본인의 참여 의사를 저장한다. 요청 본문은 없다.',
+  'path_parameters': [{'name': 'candidateId',
+                       'type': 'string',
+                       'description': '동선 추천용 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | InterestDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'403': ['자기 계정 요청의 기사 참여 시도 (`SELF_PARTICIPATION_FORBIDDEN`)'],
+             '409': ['동선 탐색 중단·최소 공개 철회 (`EXPLORATION_CLOSED`)']},
   'status': 201,
   'response': 'InterestDTO',
   'authenticated': True,
@@ -3379,6 +4401,17 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'GET',
   'path': '/work-items/{workItemId}/interests',
   'summary': '참여 기사 조회',
+  'tag': 'Matching',
+  'description': '- **인증 요구사항**: ✅\n- **선행 조건**: 본인\n- **설명**: 항목에 참여 의사를 표시한 기사의 공개 정보를 반환한다.',
+  'path_parameters': [{'name': 'workItemId',
+                       'type': 'string',
+                       'description': '작업 항목 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | InterestDTO[] | 항목의 현재 조회 가능한 참여 의사 전체; `createdAt` 내림차순·동률 '
+                          '`interestId` 내림차순; 페이지 분할·개수 절단 없음 |',
+  'response_headers': {},
+  'errors': {},
   'status': 200,
   'response': 'InterestDTO[]',
   'authenticated': True,
@@ -3389,6 +4422,22 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'POST',
   'path': '/work-items/{workItemId}/consultations',
   'summary': '기사 선택·상담 요청',
+  'tag': 'Consultations',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 소유자; 지역·방문 조건·요약 확인\n'
+                 '- **설명**: 선택 기사와 확인 전달본을 입력받아 상담 관계를 생성한다.',
+  'path_parameters': [{'name': 'workItemId',
+                       'type': 'string',
+                       'description': '작업 항목 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | ConsultationDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'403': ['자기 계정 요청의 기사 참여 시도 (`SELF_PARTICIPATION_FORBIDDEN`)'],
+             '409': ['목적·수신자에 맞는 최신 전달 확인 없음 (`DELIVERY_NOT_CONFIRMED`)',
+                     '전달본의 공통·항목 전제 또는 근거 자료가 변경·삭제됨 (`STALE_SOURCE`)',
+                     '전체 종료 또는 삭제 중인 요청에 새 관계·자료 생성 시도 (`RESOURCE_CLOSED`)'],
+             '422': ['상담에 필요한 확인 분야·작업 지역·방문 조건·요약 또는 견적 전제 공개 누락 (`INSUFFICIENT_INPUT`)']},
   'status': 201,
   'response': 'ConsultationDTO',
   'authenticated': True,
@@ -3407,6 +4456,20 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'GET',
   'path': '/consultations',
   'summary': '참여 상담 목록',
+  'tag': 'Consultations',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 현재 역할의 당사자\n'
+                 '- **설명**: 현재 역할로 참여한 상담과 허용된 자료를 페이지로 반환한다.\n'
+                 '\n'
+                 '**정렬**\n'
+                 '\n'
+                 '`createdAt` 내림차순 → 동률 `consultationId` 내림차순.',
+  'path_parameters': [],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | PageDTO<ConsultationDTO> | 처리 결과 |',
+  'response_headers': {},
+  'errors': {},
   'status': 200,
   'response': 'PageDTO<ConsultationDTO>',
   'authenticated': True,
@@ -3428,6 +4491,18 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'GET',
   'path': '/consultations/{consultationId}',
   'summary': '상담 상세·전달 이력 조회',
+  'tag': 'Consultations',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 관계 당사자\n'
+                 '- **설명**: 해당 상담의 이벤트·견적·전달본 ID·공개 확인 견적 전제를 반환한다.',
+  'path_parameters': [{'name': 'consultationId',
+                       'type': 'string',
+                       'description': '상담 관계 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | ConsultationDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {},
   'status': 200,
   'response': 'ConsultationDTO',
   'authenticated': True,
@@ -3438,6 +4513,20 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'PATCH',
   'path': '/consultations/{consultationId}',
   'summary': '상담 수락·거절·종료·해제',
+  'tag': 'Consultations',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 관계 당사자; 액션별 권한\n'
+                 '- **설명**: 역할별 상담 액션과 기대 버전을 입력받아 현재 상담 상태를 반환한다.',
+  'path_parameters': [{'name': 'consultationId',
+                       'type': 'string',
+                       'description': '상담 관계 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | ConsultationDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'409': ['항목에 활성 예약 존재 또는 상담 종료로 예약 취소 시도 (`ACTIVE_RESERVATION_EXISTS`)',
+                     '허용되지 않은 상태 전이·처리 순서 (`INVALID_STATE`)',
+                     '조회한 리소스·전제·합의 버전과 현재 값이 다름 (`VERSION_CONFLICT`)']},
   'status': 200,
   'response': 'ConsultationDTO',
   'authenticated': True,
@@ -3459,6 +4548,31 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'POST',
   'path': '/consultations/{consultationId}/quotes',
   'summary': '견적 신규 발행·수정본 발행',
+  'tag': 'Consultations',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 수락된 활성 상담의 기사\n'
+                 '- **설명**: 공개 확인 전제와 기사 제안 조건으로 새 견적 버전을 발행한다.',
+  'path_parameters': [{'name': 'consultationId',
+                       'type': 'string',
+                       'description': '상담 관계 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | QuoteDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'409': ['수락된 활성 상담·사용자 선택이 없음 (`CONSULTATION_NOT_ACTIVE`)',
+                     '항목에 활성 예약 존재 또는 상담 종료로 예약 취소 시도 (`ACTIVE_RESERVATION_EXISTS`)',
+                     '제안 구간의 기사 작업·이동 충돌; 다른 시간대 작업의 진행 사실만으로 견적 발행을 거절하지 않음 '
+                     '(`TECHNICIAN_CONFLICT`)',
+                     '공통·항목 사실 버전 또는 수정 대상 제안 버전 불일치; 무관한 참고 자료 추가만으로 적용하지 않음 (`VERSION_CONFLICT`)',
+                     '해당 견적 전제의 수신자·공개 범위·가림·사용자 확인이 미완료 또는 무효화됨 (`DELIVERY_NOT_CONFIRMED`)',
+                     '해당 전제가 실제 포함·참조한 근거 내용의 정정·삭제로 재확인 필요; 무관한 참고 자료 추가나 요약의 갱신 필요 표시만으로 적용하지 않음 '
+                     '(`STALE_SOURCE`)',
+                     '해당 제안의 작업·이동 검사를 완료하는 데 필요한 서울 대표 위치·이동 기준 자료가 없음; 공통 작업시간표 부재만으로는 거절하지 않음 '
+                     '(`REFERENCE_DATA_MISSING`)',
+                     '해당 제안 구간의 작업·이동 검사가 실제 종료 불명·재검사 미완료로 불가능함; 다른 구간의 초과 사실만으로 일괄 거절하지 않음 '
+                     '(`SCHEDULE_RECHECK_REQUIRED`)'],
+             '422': ['15분 단위·양수 소요 시간·사용자 방문 조건·`expiresAt ≤ startAt` 등 견적 입력 조건 위반 '
+                     '(`VALIDATION_ERROR`)',
+                     '다른 상담·항목·수신자의 견적 전제 전달본 참조 (`INVALID_REFERENCE`)',
+                     '음수·소수 원 금액·최소 비용 미확인·동일 조건 할인 위반 (`INVALID_COST`)']},
   'status': 201,
   'response': 'QuoteDTO',
   'authenticated': True,
@@ -3481,6 +4595,15 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'PATCH',
   'path': '/quotes/{quoteId}',
   'summary': '견적 철회·거절',
+  'tag': 'Consultations',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 발행 기사 또는 요청 소유자\n'
+                 '- **설명**: 발행 기사의 철회 또는 사용자의 거절 결과를 반환한다.',
+  'path_parameters': [{'name': 'quoteId', 'type': 'string', 'description': '견적 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | QuoteDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'409': ['허용되지 않은 상태 전이·처리 순서 (`INVALID_STATE`)',
+                     '조회한 리소스·전제·합의 버전과 현재 값이 다름 (`VERSION_CONFLICT`)']},
   'status': 200,
   'response': 'QuoteDTO',
   'authenticated': True,
@@ -3498,6 +4621,17 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'GET',
   'path': '/work-items/{workItemId}/quotes',
   'summary': '항목별 견적 비교',
+  'tag': 'Consultations',
+  'description': '- **인증 요구사항**: ✅\n- **선행 조건**: 본인\n- **설명**: 항목의 견적·선택 가능 여부·확정 및 미확정 비용을 반환한다.',
+  'path_parameters': [{'name': 'workItemId',
+                       'type': 'string',
+                       'description': '작업 항목 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | QuoteDTO[] | 항목의 현재 조회 가능한 견적 전체; 선택 불가·대체된 견적도 상태와 함께 포함; '
+                          '`issuedAt` 내림차순·동률 `quoteId` 내림차순; 페이지 분할·개수 절단 없음 |',
+  'response_headers': {},
+  'errors': {},
   'status': 200,
   'response': 'QuoteDTO[]',
   'authenticated': True,
@@ -3508,6 +4642,16 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'POST',
   'path': '/reservation-checks',
   'summary': '예약·변경·시작 조건 사전 검사',
+  'tag': 'Reservations',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 소유자 또는 관련 기사\n'
+                 '- **설명**: 처리 종류별 사전 검사 결과·확인 식별값·허용 중복 정보를 반환한다.',
+  'path_parameters': [],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | ReservationCheckDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'422': ['처리 종류별 필수 식별자·예상 시각 형식·범위 등 조건부 입력 오류 (`VALIDATION_ERROR`)']},
   'status': 200,
   'response': 'ReservationCheckDTO',
   'authenticated': True,
@@ -3539,6 +4683,16 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'PUT',
   'path': '/reservation-checks/{checkId}/confirmation',
   'summary': '다른 기사 방문 중복 확인',
+  'tag': 'Reservations',
+  'description': '- **인증 요구사항**: ✅\n- **선행 조건**: 해당 요청 소유자\n- **설명**: 표시한 방문 중복에 대한 사용자 확인을 저장한다.',
+  'path_parameters': [{'name': 'checkId', 'type': 'string', 'description': '조건 검사 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | ReservationCheckDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'409': ['중복 검사 대상·구간·조건이 변경됨 (`STALE_CHECK`)',
+                     '해당 처리의 기사 작업·이동 충돌; 실제 시작 검사에서는 같은 기사의 다른 실제 작업 진행 중도 포함 '
+                     '(`TECHNICIAN_CONFLICT`)']},
   'status': 200,
   'response': 'ReservationCheckDTO',
   'authenticated': True,
@@ -3552,6 +4706,26 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'POST',
   'path': '/work-items/{workItemId}/reservations',
   'summary': '견적 선택·예약 확정',
+  'tag': 'Reservations',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 소유자; 최신 견적·방문 정보 확인\n'
+                 '- **설명**: 견적·방문 정보·전제 버전·중복 확인을 입력받아 확정 예약을 반환한다.',
+  'path_parameters': [{'name': 'workItemId',
+                       'type': 'string',
+                       'description': '작업 항목 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | ReservationDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'409': ['만료·철회·거절·대체·전제 변경·관계 종료로 선택 불가 (`QUOTE_UNAVAILABLE`)',
+                     '항목에 활성 예약 존재 또는 상담 종료로 예약 취소 시도 (`ACTIVE_RESERVATION_EXISTS`)',
+                     '반영 직전 방문 시작이 미래가 아니거나 30분 미만 (`INSUFFICIENT_LEAD_TIME`)',
+                     '확정할 구간의 기사 작업·이동 충돌; 다른 시간대 작업의 진행 사실만으로 미래 예약을 거절하지 않음 '
+                     '(`TECHNICIAN_CONFLICT`)',
+                     '같은 요청의 다른 기사 방문 중복에 최신 사용자 확인 필요 (`OVERLAP_CONFIRMATION_REQUIRED`)',
+                     '서울 동·이동·작업 기준 자료 부족으로 필요한 검사 불가 (`REFERENCE_DATA_MISSING`)',
+                     '초과 미갱신·종료 불명·일정 재검사 미완료로 확정 불가 (`SCHEDULE_RECHECK_REQUIRED`)'],
+             '422': ['서울 밖 또는 미지원 분야의 조건 충족 추천·예약 시도 (`SERVICE_UNSUPPORTED`)']},
   'status': 201,
   'response': 'ReservationDTO',
   'authenticated': True,
@@ -3577,6 +4751,21 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'GET',
   'path': '/reservations',
   'summary': '당사자 예약 목록',
+  'tag': 'Reservations',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 현재 역할의 당사자\n'
+                 '- **설명**: 현재 역할의 예약·실제 작업 상태를 페이지로 반환한다.\n'
+                 '\n'
+                 '**정렬**\n'
+                 '\n'
+                 '현재 `agreement.terms.startAt` 오름차순 → 동률 `reservationId` 오름차순. 상태 필터를 적용한 뒤 같은 순서로 '
+                 '반환한다.',
+  'path_parameters': [],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | PageDTO<ReservationDTO> | 처리 결과 |',
+  'response_headers': {},
+  'errors': {},
   'status': 200,
   'response': 'PageDTO<ReservationDTO>',
   'authenticated': True,
@@ -3598,6 +4787,18 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'GET',
   'path': '/reservations/{reservationId}',
   'summary': '예약·작업·인계 상세',
+  'tag': 'Reservations',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 예약 당사자\n'
+                 '- **설명**: 당사자에게 허용된 합의·변경안·실제 작업·인계 정보를 반환한다.',
+  'path_parameters': [{'name': 'reservationId',
+                       'type': 'string',
+                       'description': '예약 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | ReservationDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {},
   'status': 200,
   'response': 'ReservationDTO',
   'authenticated': True,
@@ -3608,6 +4809,19 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'POST',
   'path': '/reservations/{reservationId}/cancellation',
   'summary': '시작 전 예약 취소',
+  'tag': 'Reservations',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 예약 당사자; 실제 시작 전\n'
+                 '- **설명**: 합의 버전과 취소 사유를 입력받아 취소 결과를 반환한다.',
+  'path_parameters': [{'name': 'reservationId',
+                       'type': 'string',
+                       'description': '예약 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | ReservationDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'409': ['실제 시작 후 일반 취소·시작 전 변경 시도 (`WORK_ALREADY_STARTED`)',
+                     '조회한 리소스·전제·합의 버전과 현재 값이 다름 (`VERSION_CONFLICT`)']},
   'status': 200,
   'response': 'ReservationDTO',
   'authenticated': True,
@@ -3625,6 +4839,18 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'POST',
   'path': '/reservations/{reservationId}/changes',
   'summary': '시작 전·진행 중 변경안 제안',
+  'tag': 'Reservations',
+  'description': '- **인증 요구사항**: ✅\n- **선행 조건**: 예약 당사자\n- **설명**: 변경 조건과 기준 합의 버전으로 새 변경안을 생성한다.',
+  'path_parameters': [{'name': 'reservationId',
+                       'type': 'string',
+                       'description': '예약 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | ReservationChangeDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'409': ['허용되지 않은 상태 전이·처리 순서 (`INVALID_STATE`)',
+                     '조회한 리소스·전제·합의 버전과 현재 값이 다름 (`VERSION_CONFLICT`)'],
+             '422': ['변경 유형별 필수·금지 필드·수량·비용·시간 단위·방문 정보 참조 조건 오류 (`VALIDATION_ERROR`)']},
   'status': 201,
   'response': 'ReservationChangeDTO',
   'authenticated': True,
@@ -3650,6 +4876,24 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'PATCH',
   'path': '/reservation-changes/{changeId}',
   'summary': '변경안 수락·거절·철회',
+  'tag': 'Reservations',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 예약 당사자; 동일 변경 버전\n'
+                 '- **설명**: 동일 변경안 버전에 대한 수락·거절·철회 결과를 반환한다.',
+  'path_parameters': [{'name': 'changeId',
+                       'type': 'string',
+                       'description': '예약 변경안 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | ReservationChangeDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'409': ['허용되지 않은 상태 전이·처리 순서 (`INVALID_STATE`)',
+                     '조회한 리소스·전제·합의 버전과 현재 값이 다름 (`VERSION_CONFLICT`)',
+                     '변경 후 작업 구간과 기사 일정·이동의 충돌; 진행 중 변경 대상 작업 자체는 다른 작업과의 충돌로 취급하지 않음 '
+                     '(`TECHNICIAN_CONFLICT`)',
+                     '같은 요청의 다른 기사 방문 중복에 최신 사용자 확인 필요 (`OVERLAP_CONFIRMATION_REQUIRED`)',
+                     '시작 전 변경의 반영 직전 방문 시작이 미래가 아니거나 30분 미만; 진행 중 변경에는 적용하지 않음 '
+                     '(`INSUFFICIENT_LEAD_TIME`)']},
   'status': 200,
   'response': 'ReservationChangeDTO',
   'authenticated': True,
@@ -3672,6 +4916,31 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'PUT',
   'path': '/reservations/{reservationId}/early-start-consent',
   'summary': '조기 시작 동의·철회',
+  'tag': 'Work',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 요청 소유자; 시작 전\n'
+                 '- **설명**: 현재 예약의 조기 시작 동의·철회와 동의 변경 식별값을 반환한다.\n'
+                 '\n'
+                 '**동의 버전·재전송 응답**\n'
+                 '\n'
+                 '| 입력·조회 조건 | 응답 |\n'
+                 '| --- | --- |\n'
+                 '| 동의 기록 없음 | `earlyStartConsent=null`; 최초 변경의 기대값은 명시적 `null` |\n'
+                 '| 최초 `REVOKE(null)` | `active=false`인 동의 객체와 새 `revision`; 이후 기대값은 이 값 사용 |\n'
+                 '| 비활성 기록에 최신 기대값으로 `REVOKE` | 변경 없이 `200`; 같은 `revision` 유지 |\n'
+                 '| 변경 성공 후 이전 기대값 재전송 | `409 VERSION_CONFLICT`; 현재 예약을 재조회 |',
+  'path_parameters': [{'name': 'reservationId',
+                       'type': 'string',
+                       'description': '예약 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | ReservationDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'409': ['허용되지 않은 상태 전이·처리 순서 (`INVALID_STATE`)',
+                     '현재 예약 합의 또는 동의 변경 식별값이 요청의 기대값과 다름 (`VERSION_CONFLICT`)',
+                     '같은 요청의 다른 기사 방문 중복에 최신 사용자 확인 필요 (`OVERLAP_CONFIRMATION_REQUIRED`)'],
+             '422': ['`expectedConsentRevision` 생략, `GRANT`의 예상 시각 누락·잘못된 형식 또는 예약 시작 이상인 예상 시각 등 '
+                     '조건부 입력 오류 (`VALIDATION_ERROR`)']},
   'status': 200,
   'response': 'ReservationDTO',
   'authenticated': True,
@@ -3703,6 +4972,36 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'POST',
   'path': '/reservations/{reservationId}/work-events',
   'summary': '시작·중단 요청·중단·완료·종료 예상 갱신',
+  'tag': 'Work',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 액션별 사용자 또는 담당 기사\n'
+                 '- **설명**: 작업 이벤트와 조건부 입력을 저장하고 현재 예약·수행·검사 결과를 반환한다.\n'
+                 '\n'
+                 '**이벤트별 출력**\n'
+                 '\n'
+                 '| 이벤트 | ReservationDTO의 출력 |\n'
+                 '| --- | --- |\n'
+                 '| `START` | `actualStartedAt`은 처리 서버 시각; `proposedStartAt`을 복사하거나 15분 단위로 반올림하지 '
+                 '않음 |\n'
+                 '| `COMPLETE`, `STOP` | `actualEndedAt`은 처리 서버 시각; 종료 위치가 `null`이어도 종료 결과 반환, '
+                 '위치·이동 미확인은 `checks`에 표시 |\n'
+                 '| `UPDATE_EXPECTED_END` | 갱신된 종료 예상·출처·변경 식별값; 충돌은 `checks`로 반환, 오래된 기대값은 `409 '
+                 'VERSION_CONFLICT`; 최신 기대값의 동일 값·출처는 변경 없이 `200` |',
+  'path_parameters': [{'name': 'reservationId',
+                       'type': 'string',
+                       'description': '예약 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | ReservationDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'409': ['허용되지 않은 상태 전이·처리 순서 (`INVALID_STATE`)',
+                     '예약 시각 전 `START`에 필요한 현재 조건의 유효한 조기 시작 동의가 없음 '
+                     '(`EARLY_START_CONSENT_REQUIRED`)',
+                     '`START`의 기사 작업·이동 충돌 또는 다른 실제 작업 진행 중 (`TECHNICIAN_CONFLICT`)',
+                     '`START`로 생기는 같은 요청의 다른 기사 방문 중복에 최신 사용자 확인 필요 '
+                     '(`OVERLAP_CONFIRMATION_REQUIRED`)',
+                     '조회한 리소스·전제·합의 버전과 현재 값이 다름 (`VERSION_CONFLICT`)'],
+             '422': ['이벤트별 필수·금지 필드 또는 expectedEndAt의 미래 시각·15분 단위 조건 오류 (`VALIDATION_ERROR`)']},
   'status': 200,
   'response': 'ReservationDTO',
   'authenticated': True,
@@ -3737,6 +5036,30 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'PUT',
   'path': '/reservations/{reservationId}/end-location',
   'summary': '완료·중단 후 종료 위치 보완·정정',
+  'tag': 'Work',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 해당 완료·중단 예약의 담당 기사\n'
+                 '- **설명**: 종료 위치를 보완·정정하고 기존 종료 시각·상태를 유지한 예약을 반환한다.\n'
+                 '\n'
+                 '**저장·재전송 응답**\n'
+                 '\n'
+                 '| 조건 | 응답 |\n'
+                 '| --- | --- |\n'
+                 '| 최신 기대값·같은 위치 | 변경 없이 `200` |\n'
+                 '| 이전 기대값 | `409 VERSION_CONFLICT`; 예약 상세로 반영 여부 확인 |\n'
+                 '| 위치 저장 후 이동 검사 미완료 | `200`, 종료 상태·시각 유지, `checks[].status=RECHECK_REQUIRED` |',
+  'path_parameters': [{'name': 'reservationId',
+                       'type': 'string',
+                       'description': '본인이 담당한 종료 예약 식별자'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | ReservationDTO | 종료 기사에게 허용된 수행 정보·현재 검사 결과; 종료 관계의 공개 제한 유지 '
+                          '|',
+  'response_headers': {},
+  'errors': {'409': ['완료·중단 상태가 아닌 예약 (`INVALID_STATE`)',
+                     '다른 종료 위치 정정이 먼저 반영됨 (`VERSION_CONFLICT`)'],
+             '422': ['존재하지 않는 위치 식별자 (`INVALID_REFERENCE`)',
+                     '필수 필드 누락·입력 형식 오류 (`VALIDATION_ERROR`)']},
   'status': 200,
   'response': 'ReservationDTO',
   'authenticated': True,
@@ -3755,6 +5078,16 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'PUT',
   'path': '/reservations/{reservationId}/preparation-notes',
   'summary': '방문 준비사항 등록·수정',
+  'tag': 'Work',
+  'description': '- **인증 요구사항**: ✅\n- **선행 조건**: 해당 활성 예약 담당 기사\n- **설명**: 장비·부품·현장 점검 준비사항을 저장한다.',
+  'path_parameters': [{'name': 'reservationId',
+                       'type': 'string',
+                       'description': '예약 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | PreparationDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'409': ['허용되지 않은 상태 전이·처리 순서 (`INVALID_STATE`)']},
   'status': 200,
   'response': 'PreparationDTO',
   'authenticated': True,
@@ -3768,6 +5101,18 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'POST',
   'path': '/work-items/{workItemId}/deliveries',
   'summary': '가림·공개 범위 전달본 준비',
+  'tag': 'Handover',
+  'description': '- **인증 요구사항**: ✅\n- **선행 조건**: 본인\n- **설명**: 근거·공개 범위·가림 입력으로 전달본 준비 작업을 접수한다.',
+  'path_parameters': [{'name': 'workItemId',
+                       'type': 'string',
+                       'description': '작업 항목 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | DeliveryDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'422': ['목적별 필수 필드·대상별 가림 경로·문자열 가림 외 구조화 값 변경 등 입력 규칙 위반 (`VALIDATION_ERROR`)',
+                     '종료 기사에게 종료 이후 자료 선택 또는 종료 당시 허용 범위 밖 자료 선택 (`INVALID_REFERENCE`)',
+                     '타 요청·타 항목·타 기사·삭제 자료 참조 (`INVALID_REFERENCE`)'],
+             '409': ['종료된 상담·취소 예약에 새 전달 시도 또는 목적·관계에 허용되지 않은 전달본 생성 (`INVALID_STATE`)',
+                     '근거 자료가 변경·삭제됨 (`STALE_SOURCE`)']},
   'status': 202,
   'response': 'DeliveryDTO',
   'authenticated': True,
@@ -3793,6 +5138,18 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'GET',
   'path': '/work-items/{workItemId}/deliveries',
   'summary': '본인 전달본·준비본 목록 복구',
+  'tag': 'Handover',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 본인\n'
+                 '- **설명**: 상담 전 준비본·외부 PDF용을 포함한 현존 본인 전달본을 반환한다.',
+  'path_parameters': [{'name': 'workItemId', 'type': 'string', 'description': '본인 작업 항목 식별자'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | PageDTO<DeliveryDTO> | 현존 본인 전달본·준비본 전체 상태; `createdAt` '
+                          '내림차순·동률 `deliveryId` 내림차순; 결과 없음은 빈 `items`; 필드 공개는 상세와 동일 |',
+  'response_headers': {},
+  'errors': {'404': ['대상 없음·삭제됨·권한 밖 존재 여부 차단 (`RESOURCE_NOT_FOUND`)'],
+             '422': ['잘못된 필터·페이지 입력 (`VALIDATION_ERROR`)']},
   'status': 200,
   'response': 'PageDTO<DeliveryDTO>',
   'authenticated': True,
@@ -3818,6 +5175,20 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'GET',
   'path': '/deliveries/{deliveryId}',
   'summary': '전달본 처리 상태·미리보기·열람',
+  'tag': 'Handover',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 소유자 또는 허용 수신자\n'
+                 '- **설명**: 소유자의 처리 상태·허용 미리보기 또는 수신자의 최신 확인본을 반환한다.',
+  'path_parameters': [{'name': 'deliveryId', 'type': 'string', 'description': '전달본 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | DeliveryDTO | 소유자의 처리 상태·허용 미리보기 또는 수신자의 최신 확인본 |',
+  'response_headers': {},
+  'errors': {'403': ['본인 소유 또는 현재 목적·수신자·관계의 열람 권한 없음 (`ACCESS_DENIED`); 존재 여부를 숨겨야 하는 대상은 `404`'],
+             '404': ['전달본 또는 상위 요청이 삭제되었거나 대상 없음·권한 밖 존재 여부 차단 (`RESOURCE_NOT_FOUND`)'],
+             '409': ['열람 권한이 있는 수신자에게도 처리 중·실패·갱신 필요·삭제 근거로 본문 제공 불가 '
+                     '(`DERIVED_CONTENT_UNAVAILABLE`); 소유자의 상태 조회에는 적용하지 않음',
+                     '수신자에게 제공할 `READY` 전달본의 최신 사용자 공개 확인이 없음 (`DELIVERY_NOT_CONFIRMED`)']},
   'status': 200,
   'response': 'DeliveryDTO',
   'authenticated': True,
@@ -3828,6 +5199,15 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'PUT',
   'path': '/deliveries/{deliveryId}/confirmation',
   'summary': '처리 결과·공개 범위 확인',
+  'tag': 'Handover',
+  'description': '- **인증 요구사항**: ✅\n- **선행 조건**: 본인\n- **설명**: 전달본 버전·근거·공개 범위의 사용자 확인을 저장한다.',
+  'path_parameters': [{'name': 'deliveryId', 'type': 'string', 'description': '전달본 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | DeliveryDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'409': ['확인 대상 버전 불일치 (`VERSION_CONFLICT`)',
+                     '근거 자료가 변경·삭제됨 (`STALE_SOURCE`)',
+                     '가림·메타데이터 제거 실패 또는 미완료 (`REDACTION_INCOMPLETE`)'],
+             '422': ['상담용 견적 전제의 필수 분야·지역·방문 조건 누락 또는 전체 제외 (`INSUFFICIENT_INPUT`)']},
   'status': 200,
   'response': 'DeliveryDTO',
   'authenticated': True,
@@ -3849,6 +5229,16 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'PUT',
   'path': '/work-items/{workItemId}/report',
   'summary': '보고서 직접 작성·수정 초안',
+  'tag': 'Handover',
+  'description': '- **인증 요구사항**: ✅\n- **선행 조건**: 본인\n- **설명**: 보고서·근거 버전과 본문을 입력받아 현재 초안을 반환한다.',
+  'path_parameters': [{'name': 'workItemId',
+                       'type': 'string',
+                       'description': '작업 항목 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | ReportDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'409': ['보고서 생성·초안 수정·확인이 먼저 반영되어 기대 버전과 다름 (`VERSION_CONFLICT`)',
+                     '근거 자료가 변경·삭제됨 (`STALE_SOURCE`)'],
+             '422': ['타 요청·타 항목·타 기사·삭제 자료 참조 (`INVALID_REFERENCE`)']},
   'status': 200,
   'response': 'ReportDTO',
   'authenticated': True,
@@ -3872,6 +5262,14 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'GET',
   'path': '/work-items/{workItemId}/report',
   'summary': '본인 보고서·초안 조회',
+  'tag': 'Handover',
+  'description': '- **인증 요구사항**: ✅\n- **선행 조건**: 본인\n- **설명**: 본인 보고서의 초안·현재본·확인 상태를 반환한다.',
+  'path_parameters': [{'name': 'workItemId',
+                       'type': 'string',
+                       'description': '작업 항목 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | ReportDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'404': ['대상 없음·삭제됨; 권한 밖 존재 여부 노출도 차단 (`RESOURCE_NOT_FOUND`)']},
   'status': 200,
   'response': 'ReportDTO',
   'authenticated': True,
@@ -3882,6 +5280,16 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'PUT',
   'path': '/work-items/{workItemId}/report/confirmation',
   'summary': '최신 보고서 본문 확인',
+  'tag': 'Handover',
+  'description': '- **인증 요구사항**: ✅\n- **선행 조건**: 본인\n- **설명**: 보고서 버전·근거에 대한 확인 결과와 현재 보고서를 반환한다.',
+  'path_parameters': [{'name': 'workItemId',
+                       'type': 'string',
+                       'description': '작업 항목 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | ReportDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'409': ['확인 대상 버전 불일치 (`VERSION_CONFLICT`)',
+                     '근거 자료가 변경·삭제됨 (`STALE_SOURCE`)',
+                     '처리 중·실패·갱신 필요·삭제 근거로 파생 자료 제공 불가 (`DERIVED_CONTENT_UNAVAILABLE`)']},
   'status': 200,
   'response': 'ReportDTO',
   'authenticated': True,
@@ -3903,6 +5311,14 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'POST',
   'path': '/deliveries/{deliveryId}/pdf-jobs',
   'summary': '사진 포함 PDF 생성',
+  'tag': 'Handover',
+  'description': '- **인증 요구사항**: ✅\n- **선행 조건**: 본인\n- **설명**: 확인 전달본 버전으로 PDF 생성 작업을 접수한다.',
+  'path_parameters': [{'name': 'deliveryId', 'type': 'string', 'description': '전달본 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | PdfJobDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'409': ['목적·수신자에 맞는 최신 전달 확인 없음 (`DELIVERY_NOT_CONFIRMED`)',
+                     '근거 자료가 변경·삭제됨 (`STALE_SOURCE`)',
+                     '가림·메타데이터 제거 실패 또는 미완료 (`REDACTION_INCOMPLETE`)']},
   'status': 202,
   'response': 'PdfJobDTO',
   'authenticated': True,
@@ -3916,6 +5332,16 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'GET',
   'path': '/deliveries/{deliveryId}/pdf-jobs',
   'summary': '본인 PDF 작업 목록 복구',
+  'tag': 'Handover',
+  'description': '- **인증 요구사항**: ✅\n- **선행 조건**: 본인\n- **설명**: 전달본별 현존 PDF 작업의 ID·처리 상태·오류를 반환한다.',
+  'path_parameters': [{'name': 'deliveryId', 'type': 'string', 'description': '본인 전달본 식별자'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | PageDTO<PdfJobDTO> | 현존 본인 작업 전체 상태; `createdAt` 내림차순·동률 '
+                          '`jobId` 내림차순; 결과 없음은 빈 `items`; 상위 전달본의 `STALE`만으로 조회 차단하지 않음 |',
+  'response_headers': {},
+  'errors': {'404': ['대상 없음·삭제됨·권한 밖 존재 여부 차단 (`RESOURCE_NOT_FOUND`)'],
+             '422': ['잘못된 필터·페이지 입력 (`VALIDATION_ERROR`)']},
   'status': 200,
   'response': 'PageDTO<PdfJobDTO>',
   'authenticated': True,
@@ -3937,6 +5363,14 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'GET',
   'path': '/pdf-jobs/{jobId}',
   'summary': 'PDF 생성 상태 조회',
+  'tag': 'Handover',
+  'description': '- **인증 요구사항**: ✅\n- **선행 조건**: 본인\n- **설명**: PDF 작업 상태·오류·현재 다운로드 가능 여부를 반환한다.',
+  'path_parameters': [{'name': 'jobId',
+                       'type': 'string',
+                       'description': '해당 종류의 비동기 작업 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | PdfJobDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {},
   'status': 200,
   'response': 'PdfJobDTO',
   'authenticated': True,
@@ -3947,6 +5381,21 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'GET',
   'path': '/pdf-jobs/{jobId}/content',
   'summary': '확인된 PDF 다운로드',
+  'tag': 'Handover',
+  'description': '- **인증 요구사항**: ✅\n- **선행 조건**: 본인\n- **설명**: 권한과 최신성이 유효한 PDF 바이트를 첨부 파일로 반환한다.',
+  'path_parameters': [{'name': 'jobId',
+                       'type': 'string',
+                       'description': '해당 종류의 비동기 작업 식별자; 실제 형식 미정'}],
+  'response_description': '| 항목 | 값 |\n'
+                          '| --- | --- |\n'
+                          '| Content-Type | `application/pdf` |\n'
+                          '| Content-Disposition | `attachment; filename="report.pdf"`; 개인정보 없는 고정 '
+                          'ASCII 파일명인 연동안 |\n'
+                          '| Body | 사진·그림과 렌더링한 Markdown 본문을 포함한 PDF |\n'
+                          '| 제외 정보 | 상담·견적·상세 주소·연락처·원본 URL·가림 전 원본·금지 메타데이터 |',
+  'response_headers': {},
+  'errors': {'409': ['처리 중·실패·갱신 필요·삭제 근거로 파생 자료 제공 불가 (`DERIVED_CONTENT_UNAVAILABLE`)',
+                     '근거 자료가 변경·삭제됨 (`STALE_SOURCE`)']},
   'status': 200,
   'response': None,
   'authenticated': True,
@@ -3957,6 +5406,17 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'POST',
   'path': '/deletion-jobs',
   'summary': '사진·일반 기록·요청 전체 삭제',
+  'tag': 'Deletion',
+  'description': '- **인증 요구사항**: ✅\n- **선행 조건**: 본인\n- **설명**: 삭제 대상·참조 정리 확인을 입력받아 삭제 작업을 접수한다.',
+  'path_parameters': [],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | DeletionJobDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'403': ['소유 권한 없음; 작업 생성 없이 거절 (`ACCESS_DENIED`)'],
+             '404': ['대상 없음·삭제됨 또는 존재 여부 비공개; 작업 생성 없이 거절 (`RESOURCE_NOT_FOUND`)'],
+             '409': ['본인 일반 기록·전체 삭제를 막는 활성 관계; 생성한 `REJECTED` 작업을 `currentState`로 연결 '
+                     '(`ACTIVE_RELATION_EXISTS`)']},
   'status': 202,
   'response': 'DeletionJobDTO',
   'authenticated': True,
@@ -3978,6 +5438,20 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'GET',
   'path': '/deletion-jobs',
   'summary': '삭제 작업 목록·재시도 대상 복구',
+  'tag': 'Deletion',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 본인\n'
+                 '- **설명**: 원래 요청의 삭제 여부와 관계없이 본인 삭제 작업 ID·상태를 반환한다.\n'
+                 '\n'
+                 '**정렬**\n'
+                 '\n'
+                 '`createdAt` 내림차순 → 동률 `jobId` 내림차순. 재시도는 최초 작업 생성 시각을 바꾸지 않는다.',
+  'path_parameters': [],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | PageDTO<DeletionJobDTO> | 본인 삭제 작업의 식별자·상태·필요 조치; 없으면 빈 목록 |',
+  'response_headers': {},
+  'errors': {},
   'status': 200,
   'response': 'PageDTO<DeletionJobDTO>',
   'authenticated': True,
@@ -4003,6 +5477,16 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'GET',
   'path': '/deletion-jobs/{jobId}',
   'summary': '삭제 처리 상태 조회',
+  'tag': 'Deletion',
+  'description': '- **인증 요구사항**: ✅\n- **선행 조건**: 본인\n- **설명**: 삭제 작업 상태·영향 범위·접근 차단·회복 사진 수를 반환한다.',
+  'path_parameters': [{'name': 'jobId',
+                       'type': 'string',
+                       'description': '해당 종류의 비동기 작업 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | DeletionJobDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {},
   'status': 200,
   'response': 'DeletionJobDTO',
   'authenticated': True,
@@ -4013,6 +5497,18 @@ ENDPOINTS = [{'method': 'POST',
  {'method': 'POST',
   'path': '/deletion-jobs/{jobId}/retry',
   'summary': '삭제 미완료 정리 재시도',
+  'tag': 'Deletion',
+  'description': '- **인증 요구사항**: ✅\n'
+                 '- **선행 조건**: 본인\n'
+                 '- **설명**: 실패한 삭제 작업을 기존 작업 ID로 재접수한다. 요청 본문은 없다.',
+  'path_parameters': [{'name': 'jobId',
+                       'type': 'string',
+                       'description': '해당 종류의 비동기 작업 식별자; 실제 형식 미정'}],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | DeletionJobDTO | 처리 결과 |',
+  'response_headers': {},
+  'errors': {'409': ['허용되지 않은 상태 전이·처리 순서 (`INVALID_STATE`)']},
   'status': 202,
   'response': 'DeletionJobDTO',
   'authenticated': True,

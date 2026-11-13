@@ -17,10 +17,11 @@ from starlette.responses import JSONResponse, Response
 from app import api
 from app.config import get_settings
 from app.contract_data import ENDPOINTS
-from app.contracts import enrich_openapi, load_json, project_output, validate_object
+from app.contracts import load_json, project_output, validate_object
 from app.db import Idempotency, lock, session_factory
 from app.errors import DomainError, require
 from app.observability import AccessLogMiddleware, configure_logging
+from app.openapi import API_DESCRIPTION, SWAGGER_UI_PARAMETERS, enrich_openapi
 from app.security import authenticate, require_actor
 from app.services.context import Context
 
@@ -175,8 +176,9 @@ def create_app(settings=None, factory=None):
     settings, factory = settings or get_settings(), factory or session_factory()
     logger = configure_logging(settings)
     app = FastAPI(title="고쳐야집 Backend API", version="0.1.0",
-                  description="요구사항 v1.7 · 분업 v1.4 · API v0.1. 쿠키 세션과 명시적 AI 실행을 사용합니다.",
-                  docs_url="/api/docs", openapi_url="/api/openapi.json", redoc_url=None)
+                  description=API_DESCRIPTION,
+                  docs_url="/api/docs", openapi_url="/api/openapi.json", redoc_url=None,
+                  swagger_ui_parameters=SWAGGER_UI_PARAMETERS)
     app.state.settings, app.state.factory = settings, factory
 
     @app.exception_handler(DomainError)
@@ -234,9 +236,9 @@ def create_app(settings=None, factory=None):
 
     def openapi():
         if app.openapi_schema is None:
-            app.openapi_schema = enrich_openapi(get_openapi(title=app.title, version=app.version,
-                                                            description=app.description, routes=app.routes))
-            app.openapi_schema["components"]["securitySchemes"]["session"]["name"] = settings.session_cookie
+            app.openapi_schema = enrich_openapi(
+                get_openapi(title=app.title, version=app.version,
+                            description=app.description, routes=app.routes), settings)
         return app.openapi_schema
     app.openapi = openapi
     app.add_middleware(RequestBoundary, settings=settings)

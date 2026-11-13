@@ -1,0 +1,53 @@
+name: fix-my-home
+
+# Reuse the deployment service settings, then build the application locally.
+# LOCAL_* values keep the ARM deployment settings in .env independent.
+x-local-application: &local-application
+  image: ${IMAGE_NAME:-eagleindesert/fix-my-home-be}:${LOCAL_IMAGE_TAG:-local}
+  platform: ${LOCAL_IMAGE_PLATFORM:-linux/amd64}
+  pull_policy: build
+  build:
+    context: .
+    dockerfile: Dockerfile
+  environment:
+    FMH_ENVIRONMENT: development
+    FMH_COOKIE_SECURE: "false"
+    FMH_PUBLIC_ORIGIN: ${FMH_LOCAL_ORIGIN:-http://localhost:8000}
+
+services:
+  db:
+    extends:
+      file: docker-compose-deployment.yaml
+      service: db
+    platform: ${LOCAL_IMAGE_PLATFORM:-linux/amd64}
+
+  migrate:
+    <<: *local-application
+    extends:
+      file: docker-compose-deployment.yaml
+      service: migrate
+
+  be:
+    <<: *local-application
+    extends:
+      file: docker-compose-deployment.yaml
+      service: be
+
+  worker:
+    <<: *local-application
+    extends:
+      file: docker-compose-deployment.yaml
+      service: worker
+
+# Compose extends does not import top-level volumes or networks.
+volumes:
+  postgres-data:
+  media-data:
+  log-data:
+
+networks:
+  backend:
+    ipam:
+      config:
+        - subnet: ${DOCKER_SUBNET:-172.30.0.0/24}
+          gateway: ${DOCKER_GATEWAY:-172.30.0.1}

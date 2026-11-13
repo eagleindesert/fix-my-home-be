@@ -4,7 +4,7 @@ import json
 import math
 from datetime import date
 
-from app.contract_data import ENDPOINTS, ENUMS, SCHEMAS
+from app.contract_data import ENUMS, SCHEMAS
 from app.errors import DomainError, invalid
 from app.time_rules import as_utc
 
@@ -144,41 +144,3 @@ def project_output(value, kind):
                 raise RuntimeError(f"Missing response field: {kind}.{name}")
         return result
     return value
-
-
-def enrich_openapi(document):
-    schemas = document.setdefault("components", {}).setdefault("schemas", {})
-    schemas.update({name: object_schema(fields) for name, fields in SCHEMAS.items() if name != "PageDTO<T>"})
-    schemas["ErrorResponseDTO"] = {"type": "object", "properties": {
-        "code": {"type": "string"}, "message": {"type": "string"},
-        "retryable": {"type": "boolean"}, "permissionDenied": {"type": "boolean"},
-        "currentState": {"anyOf": [type_schema("ResourceStateDTO"), {"type": "null"}]},
-        "fieldErrors": type_schema("FieldErrorDTO[]"), "checks": type_schema("ScheduleCheckDTO[]"),
-        "requiredActions": type_schema("string[]")}}
-    document["components"]["securitySchemes"] = {"session": {"type": "apiKey", "in": "cookie", "name": "fmh_session"}}
-    for endpoint in ENDPOINTS:
-        operation = document["paths"]["/api/v1" + endpoint["path"]][endpoint["method"].lower()]
-        operation["parameters"] = [{"name": name, "in": "path", "required": True, "schema": {"type": "string"}}
-                                   for name in __import__("re").findall(r"\{(\w+)\}", endpoint["path"])]
-        operation["parameters"] += [{"name": f["name"], "in": "query", "required": f["required"],
-                                     "schema": type_schema(f["type"])} for f in endpoint["query"]]
-        if endpoint["idempotent"]:
-            operation["parameters"].append({"name": "Idempotency-Key", "in": "header", "required": True,
-                                             "schema": {"type": "string", "pattern": '^"[\\x20-\\x21\\x23-\\x7e]+"$'}})
-        if endpoint["body"]:
-            content = "multipart/form-data" if endpoint["multipart"] else "application/json"
-            operation["requestBody"] = {"required": True, "content": {content: {"schema": object_schema(endpoint["body"])}}}
-        if endpoint["authenticated"]:
-            operation["security"] = [{"session": []}]
-        if endpoint["response"]:
-            operation["responses"][str(endpoint["status"])] = {"description": "성공", "content": {
-                "application/json": {"schema": {"type": "object", "required": ["data"],
-                                                "properties": {"data": type_schema(endpoint["response"])}}}}}
-        elif endpoint["method"] == "GET" and endpoint["path"] in ("/media/{mediaId}", "/pdf-jobs/{jobId}/content"):
-            types = ["application/pdf"] if endpoint["path"].startswith("/pdf-jobs") else ["image/jpeg", "image/png"]
-            operation["responses"]["200"] = {"description": "권한이 확인된 파일", "content": {
-                content_type: {"schema": {"type": "string", "format": "binary"}} for content_type in types}}
-        for status in (400, 401, 403, 404, 409, 413, 415, 422, 500, 503):
-            operation["responses"][str(status)] = {"description": "공통 오류", "content": {
-                "application/json": {"schema": type_schema("ErrorResponseDTO")}}}
-    return document
