@@ -12,43 +12,65 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def fake_deployment(tmp_path):
-    shutil.copy2(ROOT / "start.sh", tmp_path)
-    shutil.copy2(ROOT / "docker-compose-deployment.yaml", tmp_path)
-    (tmp_path / ".env").write_text("IMAGE_TAG=old\nIMAGE_PLATFORM=linux/arm64\nUNRELATED=preserved\n")
+@pytest.fixture(params=["standalone", "repository"])
+def deployment(tmp_path, request):
+    project = tmp_path / "project"
+    script_dir = project if request.param == "standalone" else project / "scripts/etc"
+    script_dir.mkdir(parents=True)
+    script = script_dir / "start.sh"
+    shutil.copy2(ROOT / "scripts/etc/start.sh", script)
+    shutil.copy2(ROOT / "docker-compose-deployment.yaml", project)
+    (project / ".env").write_text("IMAGE_TAG=old\nIMAGE_PLATFORM=linux/arm64\nUNRELATED=preserved\n")
     binary = tmp_path / "bin"
     binary.mkdir()
     docker = binary / "docker"
     docker.write_text('''#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "$CALLS"
+if [[ $PWD != "$DEPLOY_DIR" ]]; then exit 9; fi
 if [[ $* == *pull* && ${FAIL_PULL:-false} == true ]]; then exit 7; fi
+if [[ $4 == port ]]; then printf '127.0.0.1:18000\\n'; fi
 ''')
     docker.chmod(0o755)
-    env = {**os.environ, "PATH": f"{binary}:{os.environ['PATH']}", "CALLS": str(tmp_path / "calls")}
-    return env
+    env = {**os.environ, "PATH": f"{binary}:{os.environ['PATH']}",
+           "CALLS": str(tmp_path / "calls"), "DEPLOY_DIR": str(project)}
+    return project, script, env
 
 
-def test_start_without_arguments_is_plain_compose(tmp_path):
-    env = fake_deployment(tmp_path)
-    subprocess.run(["bash", str(tmp_path / "start.sh")], env=env, cwd="/tmp", check=True)
-    assert (tmp_path / "calls").read_text().splitlines() == ["compose -f docker-compose-deployment.yaml up -d"]
+def test_start_without_arguments_is_plain_compose(tmp_path, deployment):
+    _, script, env = deployment
+    completed = subprocess.run(["bash", str(script)], env=env, cwd=tmp_path,
+                               check=True, capture_output=True, text=True)
+    assert (tmp_path / "calls").read_text().splitlines() == [
+        "compose -f docker-compose-deployment.yaml up -d",
+        "compose -f docker-compose-deployment.yaml port be 8000",
+    ]
+    assert "http://127.0.0.1:18000/api/docs" in completed.stdout
+    assert "http://127.0.0.1:18000/health/ready" in completed.stdout
 
 
-def test_version_pull_then_persist_and_start(tmp_path):
-    env = fake_deployment(tmp_path)
-    subprocess.run(["bash", str(tmp_path / "start.sh"), "v1.2.3"], env=env, check=True)
-    assert (tmp_path / "calls").read_text().splitlines() == ["compose -f docker-compose-deployment.yaml pull", "compose -f docker-compose-deployment.yaml up -d"]
-    value = (tmp_path / ".env").read_text()
+def test_version_pull_then_persist_and_start(tmp_path, deployment):
+    project, script, env = deployment
+    completed = subprocess.run(["bash", str(script), "v1.2.3"], env=env, cwd=tmp_path,
+                               check=True, capture_output=True, text=True)
+    assert (tmp_path / "calls").read_text().splitlines() == [
+        "compose -f docker-compose-deployment.yaml pull",
+        "compose -f docker-compose-deployment.yaml up -d",
+        "compose -f docker-compose-deployment.yaml port be 8000",
+    ]
+    assert "http://127.0.0.1:18000/api/docs" in completed.stdout
+    value = (project / ".env").read_text()
     assert "IMAGE_TAG=v1.2.3\n" in value and "UNRELATED=preserved\n" in value
     assert value.count("IMAGE_TAG=") == 1
 
 
-def test_failed_pull_keeps_selected_version(tmp_path):
-    env = fake_deployment(tmp_path)
-    before = (tmp_path / ".env").read_bytes()
-    completed = subprocess.run(["bash", str(tmp_path / "start.sh"), "v2"], env={**env, "FAIL_PULL": "true"})
+def test_failed_pull_keeps_selected_version(tmp_path, deployment):
+    project, script, env = deployment
+    before = (project / ".env").read_bytes()
+    completed = subprocess.run(["bash", str(script), "v2"], cwd=tmp_path,
+                               env={**env, "FAIL_PULL": "true"}, capture_output=True, text=True)
     assert completed.returncode == 7
-    assert (tmp_path / ".env").read_bytes() == before
+    assert "접속 주소" not in completed.stdout
+    assert (project / ".env").read_bytes() == before
     assert "up -d" not in (tmp_path / "calls").read_text()
 
 
@@ -63,7 +85,8 @@ def test_three_file_compose_and_no_target_run():
     runtime = (ROOT / "Dockerfile").read_text().split(" AS runtime\n")[1]
     assert not any(line.startswith("RUN ") for line in runtime.splitlines())
     assert "/.venv/bin" not in runtime
-    assert "restart-policy=no" in (ROOT / "scripts/build-common.sh").read_text()
+    for name in ("build-start.sh", "build-push.sh"):
+        assert "restart-policy=no" in (ROOT / "scripts" / name).read_text()
     assert "--push" not in (ROOT / "scripts/build-start.sh").read_text()
     assert "--load" not in (ROOT / "scripts/build-push.sh").read_text()
 
@@ -73,14 +96,17 @@ def test_build_start_builds_through_compose_and_cleans_builder(tmp_path, compose
     project = tmp_path / "project"
     scripts = project / "scripts"
     scripts.mkdir(parents=True)
-    for filename in ("build-start.sh", "build-common.sh"):
-        shutil.copy2(ROOT / "scripts" / filename, scripts)
+    shutil.copy2(ROOT / "scripts/build-start.sh", scripts)
     shutil.copy2(ROOT / "docker-compose.yaml", project)
     binary = tmp_path / "bin"
     binary.mkdir()
     docker = binary / "docker"
     docker.write_text('''#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "$CALLS"
+if [[ $1 == compose && $4 == port ]]; then
+    printf '127.0.0.1:18000\\n'
+    exit 0
+fi
 if [[ $1 == compose ]]; then
     printf '%s\\n' "$PWD" "${BUILDX_BUILDER:-}" "${COMPOSE_BAKE:-}" "${LOCAL_IMAGE_TAG:-}" > "$BUILD_ENV"
     exit "$COMPOSE_EXIT"
@@ -91,15 +117,70 @@ fi
            "CALLS": str(tmp_path / "calls"), "BUILD_ENV": str(tmp_path / "build-env"),
            "COMPOSE_EXIT": str(compose_exit), "LOCAL_IMAGE_TAG": "existing-local-version"}
     arguments = [version] if version else []
-    completed = subprocess.run(["bash", str(scripts / "build-start.sh"), *arguments], cwd=tmp_path, env=env)
+    completed = subprocess.run(["bash", str(scripts / "build-start.sh"), *arguments],
+                               cwd=tmp_path, env=env, capture_output=True, text=True)
     assert completed.returncode == compose_exit
     directory, builder, bake, tag = (tmp_path / "build-env").read_text().splitlines()
     assert directory == str(project) and bake == "true"
     assert tag == (version or "existing-local-version")
-    assert (tmp_path / "calls").read_text().splitlines() == [
+    expected_calls = [
         f"buildx create --name {builder} --driver docker-container --driver-opt restart-policy=no",
         f"buildx inspect --builder {builder} --bootstrap",
         "compose -f docker-compose.yaml up -d --build",
+    ]
+    if compose_exit == 0:
+        expected_calls.append("compose -f docker-compose.yaml port be 8000")
+        assert "http://127.0.0.1:18000/api/docs" in completed.stdout
+        assert "http://127.0.0.1:18000/health/ready" in completed.stdout
+    else:
+        assert "접속 주소" not in completed.stdout
+    expected_calls.extend([
+        f"buildx stop {builder}",
+        f"buildx rm {builder}",
+    ])
+    assert (tmp_path / "calls").read_text().splitlines() == expected_calls
+
+
+@pytest.mark.parametrize("build_exit, image_name", [
+    (0, None), (0, "registry.example/team/backend"), (7, "registry.example/team/backend"),
+])
+def test_build_push_runs_alone_and_cleans_builder(tmp_path, build_exit, image_name):
+    project = tmp_path / "project"
+    scripts = project / "scripts"
+    scripts.mkdir(parents=True)
+    shutil.copy2(ROOT / "scripts/build-push.sh", scripts)
+    binary = tmp_path / "bin"
+    binary.mkdir()
+    docker = binary / "docker"
+    docker.write_text('''#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "$CALLS"
+if [[ $1 == buildx && $2 == build ]]; then
+    printf '%s\\n' "$PWD" > "$BUILD_DIR"
+    exit "$BUILD_EXIT"
+fi
+''')
+    docker.chmod(0o755)
+    env = {**os.environ, "PATH": f"{binary}:{os.environ['PATH']}",
+           "CALLS": str(tmp_path / "calls"), "BUILD_DIR": str(tmp_path / "build-dir"),
+           "BUILD_EXIT": str(build_exit)}
+    env.pop("IMAGE_NAME", None)
+    if image_name is not None:
+        env["IMAGE_NAME"] = image_name
+
+    completed = subprocess.run(
+        ["bash", str(scripts / "build-push.sh"), "v0.2.0"],
+        cwd=tmp_path, env=env, capture_output=True, text=True,
+    )
+
+    assert completed.returncode == build_exit
+    assert (tmp_path / "build-dir").read_text().strip() == str(project)
+    calls = (tmp_path / "calls").read_text().splitlines()
+    builder = calls[0].split()[3]
+    image_name = image_name or "eagleindesert/fix-my-home-be"
+    assert calls == [
+        f"buildx create --name {builder} --driver docker-container --driver-opt restart-policy=no",
+        f"buildx inspect --builder {builder} --bootstrap",
+        f"buildx build --builder {builder} --platform linux/arm64 --tag {image_name}:v0.2.0 --push .",
         f"buildx stop {builder}",
         f"buildx rm {builder}",
     ]

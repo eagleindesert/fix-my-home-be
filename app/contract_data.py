@@ -1,4 +1,4 @@
-"""API명세서.md에서 생성됨. 원문 수정 후 uv run python -m scripts.generate_contract 실행."""
+"""API명세서.md에서 생성됨. 원문 수정 후 uv run python -m scripts.etc.generate_contract 실행."""
 
 ENUMS = {'ResourceType': ['REQUEST',
                   'WORK_ITEM',

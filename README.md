@@ -37,10 +37,12 @@ uv run pytest -q
 전송 계약과 엔드포인트 설명의 원문은 [API 명세서](docs/API명세서.md)입니다. 원문 수정 후 다음 명령으로 `app/contract_data.py`를 갱신합니다. 생성한 상수는 이미지에서 바이트코드로 제공되므로 실행 서버에 Markdown 원본이 필요하지 않습니다. Swagger 공통 사용 안내·표시 옵션은 `app/openapi.py`에서 관리합니다.
 
 ```bash
-uv run python -m scripts.generate_contract
+uv run python -m scripts.etc.generate_contract
 ```
 
 ## 빌드와 배포
+
+`scripts/`에는 주요 실행 도구인 `build-push.sh`, `build-start.sh`, `sync_env.py`를 둡니다. 보조 스크립트는 `scripts/etc/`에 모으며, 각 스크립트는 다른 스크립트를 불러오거나 실행하지 않습니다. 두 빌드 스크립트의 버전 검증과 builder 생성·정리도 각 파일 안에서 처리합니다.
 
 로컬 개발자는 `.env.example`을 양식으로 다음 명령을 실행해 `.env`를 준비합니다.
 
@@ -76,7 +78,7 @@ docker compose -f docker-compose.yaml up -d --build
 
 `Dockerfile`의 모든 `RUN` 단계는 `$BUILDPLATFORM`에서 실행합니다. 대상 CPU wheel을 `uv sync --python-platform … --no-build`로 설치하고 ELF 아키텍처를 검사합니다. 프로젝트 코드는 같은 CPython 3.13 빌드 이미지에서 `.pyc`로 컴파일합니다. 최종 ARM 이미지에는 해당 wheel, `.pyc`, 설정과 한글 글꼴만 복사하며 ARM 명령을 실행하지 않습니다. 애플리케이션·worker·migration의 `.py` 소스는 최종 이미지 레이어에 포함하지 않습니다. 표준 라이브러리와 외부 패키지 소스는 제거 대상이 아닙니다. Python 바이트코드는 원본 소스 배포를 피하는 방식이며 강한 역공학 방지를 보장하지 않습니다.
 
-Ubuntu 24.04 ARM64 VM에는 Docker Compose와 호스트 Nginx가 준비되어 있어야 합니다. 다음 세 파일만 같은 디렉토리에 복사합니다.
+Ubuntu 24.04 ARM64 VM에는 Docker Compose와 호스트 Nginx가 준비되어 있어야 합니다. 다음 세 파일만 같은 디렉토리에 복사합니다. `start.sh`는 저장소의 `scripts/etc/start.sh`를 복사한 파일입니다. 저장소에서 실행할 때는 `./scripts/etc/start.sh`를 사용하며, 작업 디렉터리와 관계없이 저장소 루트의 Compose 설정을 사용합니다.
 
 ```text
 docker-compose-deployment.yaml

@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from scripts.evaluate_ai import GROUPS, THRESHOLDS, load_frozen, prepare, report, validate_manifest, write_json
+from scripts.etc.evaluate_ai import GROUPS, THRESHOLDS, load_frozen, prepare, report, validate_manifest, write_json
 
 
 def manifest():

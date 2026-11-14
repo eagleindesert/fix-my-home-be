@@ -1,6 +1,6 @@
 """API 문서의 타입·전송 계약을 런타임 상수로 변환한다.
 
-실행: uv run python -m scripts.generate_contract
+실행: uv run python -m scripts.etc.generate_contract
 업무 검증은 서비스 모듈에서 수행하며 이 도구는 정책을 추정하지 않는다.
 """
 
@@ -8,7 +8,7 @@ import pprint
 import re
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 SECTION_PATTERN = re.compile(r"^### (.+)\n([\s\S]*?)(?=^#{2,3} |\Z)", re.M)
 BLOCK_PATTERN = re.compile(r"^\*\*([^\n]+?)\*\*\s*$", re.M)
 
@@ -135,7 +135,7 @@ def generate(document):
 
 def render_contract(document):
     contract = generate(document)
-    header = '"""API명세서.md에서 생성됨. 원문 수정 후 uv run python -m scripts.generate_contract 실행."""\n\n'
+    header = '"""API명세서.md에서 생성됨. 원문 수정 후 uv run python -m scripts.etc.generate_contract 실행."""\n\n'
     return header + "\n\n".join(
         f"{name} = {pprint.pformat(value, sort_dicts=False, width=100)}"
         for name, value in contract.items()

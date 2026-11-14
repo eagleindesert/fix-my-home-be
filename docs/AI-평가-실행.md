@@ -1,6 +1,6 @@
 # AI 평가 실행
 
-평가 도구는 `scripts/evaluate_ai.py`입니다. 이 저장소에는 출처와 사용 권리가 확인된 80개 평가 사례가 제공되지 않았으므로 실제 모델 평가 결과를 포함하지 않습니다. 테스트의 가짜 모델은 상태·실패 처리 검증용이며 AI 품질 점수가 아닙니다.
+평가 도구는 `scripts/etc/evaluate_ai.py`입니다. 이 저장소에는 출처와 사용 권리가 확인된 80개 평가 사례가 제공되지 않았으므로 실제 모델 평가 결과를 포함하지 않습니다. 테스트의 가짜 모델은 상태·실패 처리 검증용이며 AI 품질 점수가 아닙니다.
 
 ## 사전 고정
 
@@ -18,7 +18,7 @@ manifest에는 `version`, `model`, `rubricVersion`, `sampleSeed`, `cases`, `inje
 지표 이름과 합격선은 도구의 `THRESHOLDS`에 있습니다. 전체 manifest에 모든 지표를 포함해야 합니다. 오류 주입에는 GUIDE와 PHOTO 사례를 각각 포함하며 `id`, `kind`, `caseId`, `output`, `expectedCritical`을 지정합니다. 주입 출력은 생성 품질 분모에 넣지 않습니다.
 
 ```bash
-uv run python -m scripts.evaluate_ai prepare dataset/manifest.json evaluation-results/v1
+uv run python -m scripts.etc.evaluate_ai prepare dataset/manifest.json evaluation-results/v1
 ```
 
 이 명령은 사진 해시, 데이터셋, 루브릭, 모델, 프롬프트, 목표값, 반복 횟수와 표본 선정 seed를 고정합니다. 고정 결과를 수정하면 실행을 거부합니다. 실제 접수자료의 저장소·API·사진 URL을 평가로 가져오는 기능은 없습니다.
@@ -27,8 +27,8 @@ uv run python -m scripts.evaluate_ai prepare dataset/manifest.json evaluation-re
 
 ```bash
 export FMH_OPENAI_API_KEY='configured-outside-the-repository'
-uv run python -m scripts.evaluate_ai run evaluation-results/v1
-uv run python -m scripts.evaluate_ai report evaluation-results/v1
+uv run python -m scripts.etc.evaluate_ai run evaluation-results/v1
+uv run python -m scripts.etc.evaluate_ai report evaluation-results/v1
 ```
 
 `run`은 유료 모델 요청을 발생시킵니다. 생성·평가에 manifest의 같은 모델을 사용하며 별도 Responses 호출과 별도 프롬프트로 문맥을 분리합니다. 모델 제공자가 세부 버전을 공개하지 않으면 모델 이름 이상의 재현성을 보장할 수 없습니다. 평가기가 서비스를 생성한 같은 모델이므로 독립된 외부 검증이라고 해석하지 않습니다.

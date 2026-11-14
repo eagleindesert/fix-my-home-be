@@ -25,7 +25,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends fonts-nanum && 
 COPY app ./app
 COPY migrations ./migrations
 COPY alembic.ini ./
-COPY scripts/prepare_image.py ./prepare_image.py
+COPY scripts/etc/prepare_image.py ./prepare_image.py
 RUN uv run --no-project --no-sync --python /usr/local/bin/python python prepare_image.py "$TARGETARCH"
 
 # No target-architecture commands run during the image build.

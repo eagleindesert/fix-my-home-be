@@ -9,7 +9,8 @@
 !migrations/
 !migrations/**
 !scripts/
-!scripts/prepare_image.py
+!scripts/etc/
+!scripts/etc/prepare_image.py
 **/__pycache__/
 **/*.pyc
 **/.env

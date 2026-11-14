@@ -7,7 +7,7 @@ from fastapi.openapi.models import OpenAPI
 from app.contract_data import ENDPOINTS
 from app.contracts import validate_type
 from conftest import login, picture, result
-from scripts.generate_contract import render_contract
+from scripts.etc.generate_contract import render_contract
 
 ROOT = Path(__file__).resolve().parents[1]
 
