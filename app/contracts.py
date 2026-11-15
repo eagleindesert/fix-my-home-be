@@ -4,9 +4,25 @@ import json
 import math
 from datetime import date
 
-from app.contract_data import ENUMS, SCHEMAS
+from app.contract_data import ENDPOINTS, ENUMS, SCHEMAS
 from app.errors import DomainError, invalid
 from app.time_rules import as_utc
+
+
+_ENDPOINT_CONTRACTS = {
+    (endpoint["method"], endpoint["path"]): endpoint
+    for endpoint in ENDPOINTS
+}
+
+
+def endpoint_contract(method: str, path: str, status_code: int | None = None) -> dict:
+    """등록된 라우트의 입출력 계약을 찾는다. 라우트나 처리 함수를 생성하지 않는다."""
+    key = (method, path.removeprefix("/v1"))
+    try:
+        contract = _ENDPOINT_CONTRACTS[key]
+    except KeyError as error:
+        raise RuntimeError(f"Missing endpoint contract: {method} {path}") from error
+    return {**contract, "status": status_code if status_code is not None else contract["status"]}
 
 
 def load_json(value):

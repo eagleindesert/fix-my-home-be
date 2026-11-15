@@ -47,7 +47,11 @@ FMH_ROOT_PATH=/fixmyhome/api
 
 계정이 없으면 `POST /v1/auth/signup`으로 회원가입한 뒤 `POST /v1/auth/login`의 **Try it out**을 실행합니다. 공개 접두사는 Swagger의 서버 URL에서 자동 적용합니다. 브라우저가 받은 HttpOnly 쿠키로 이후 요청을 인증하므로 Authorize에 쿠키를 직접 입력하지 않습니다. 기사 API를 호출하려면 기사 권한이 있는 계정으로 로그인하고 `PATCH /v1/auth/role`로 전환합니다. Swagger UI의 접속 출처와 `FMH_PUBLIC_ORIGIN`을 일치시키고 운영에서는 HTTPS를 사용합니다. 로컬 Compose의 허용 출처는 `http://localhost:8000`으로 지정되어 있습니다.
 
-전송 계약과 엔드포인트 설명의 원문은 [API 명세서](docs/API명세서.md)입니다. 원문 수정 후 다음 명령으로 `app/contract_data.py`를 갱신합니다. 생성한 상수는 이미지에서 바이트코드로 제공되므로 실행 서버에 Markdown 원본이 필요하지 않습니다. Swagger 공통 사용 안내·표시 옵션은 `app/openapi.py`에서 관리합니다.
+엔드포인트는 [app/routers](app/routers)의 12개 업무별 파일에서 `@router.get(...)`, `@router.post(...)`, `@router.put(...)`, `@router.patch(...)`로 직접 선언합니다. 각 데코레이터에 경로·요약·상세 설명·상태 코드를 두고, 바로 아래 함수에서 해당 업무 처리를 정의합니다. 예를 들어 회원가입·로그인은 [auth.py](app/routers/auth.py), 요청 접수·조회는 [requests.py](app/routers/requests.py)에 있습니다. 새 업무 라우터는 [app/routers/__init__.py](app/routers/__init__.py)에 등록합니다. 기존 클라이언트 호환을 위해 `operation_id`는 유지합니다.
+
+인증·입력 검증·트랜잭션·멱등성·파일 정리는 [app/http.py](app/http.py)의 `run_endpoint()`가 공통 적용합니다. 라우터 내부의 `operation()`은 이 트랜잭션 안에서 동기 서비스 함수를 호출하며, DB·파일 작업은 스레드풀에서 실행합니다. 엔드포인트 선택은 FastAPI 라우터가 담당합니다.
+
+요청·응답 필드, 인증·멱등성 요구사항 등 전송 계약은 [API 명세서](docs/API명세서.md)에서 생성한 `app/contract_data.py`로 검증합니다. API를 추가하거나 계약을 바꿀 때는 라우터와 명세서를 함께 수정하고 다음 명령으로 계약 데이터를 갱신합니다. 이 명령은 라우터 파일을 생성하거나 수정하지 않습니다. Swagger의 엔드포인트 요약·설명은 라우터 데코레이터가 기준이며, 공통 사용 안내·표시 옵션과 입출력 스키마 보완은 `app/openapi.py`에서 관리합니다. 실행 서버에는 Markdown 원본이 필요하지 않습니다.
 
 ```bash
 uv run python -m scripts.etc.generate_contract

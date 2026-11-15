@@ -1,10 +1,12 @@
-"""문서에서 생성한 설명과 실제 전송 규칙을 Swagger UI에 제공한다."""
+"""라우터의 설명을 유지하며 공통 입출력 스키마를 Swagger UI에 보완한다."""
 
 import json
 import re
 
-from app.contract_data import ENDPOINTS, ENUM_DESCRIPTIONS, ENUMS, SCHEMA_DESCRIPTIONS, SCHEMAS, TAGS
-from app.contracts import type_schema
+from fastapi.routing import APIRoute
+
+from app.contract_data import ENUM_DESCRIPTIONS, ENUMS, SCHEMA_DESCRIPTIONS, SCHEMAS, TAGS
+from app.contracts import endpoint_contract, type_schema
 from app.errors import DomainError
 
 API_DESCRIPTION = """**Base URL:** [https://torysv.kro.kr/fixmyhome/api/v1](https://torysv.kro.kr/fixmyhome/api/v1)
@@ -227,7 +229,7 @@ def error_responses(endpoint):
     return responses
 
 
-def enrich_openapi(document, settings):
+def enrich_openapi(document, settings, routes):
     schemas = document.setdefault("components", {}).setdefault("schemas", {})
     for name, fields in SCHEMAS.items():
         if name == "PageDTO<T>":
@@ -243,34 +245,36 @@ def enrich_openapi(document, settings):
         "type": "apiKey", "in": "cookie", "name": settings.session_cookie,
         "description": "같은 출처에서 로그인하면 브라우저가 세션 쿠키를 자동 전송합니다. Authorize에 직접 입력하지 않습니다.",
     }}
-    for endpoint in ENDPOINTS:
-        operation = document["paths"]["/v1" + endpoint["path"]][endpoint["method"].lower()]
-        operation["tags"] = [endpoint["tag"]]
-        operation["description"] = endpoint["description"]
-        operation["security"] = [{"session": []}] if endpoint["authenticated"] else []
-        operation["parameters"] = [
-            {"name": field["name"], "in": "path", "required": True,
-             "description": field["description"], "schema": documented_type(field["type"])}
-            for field in endpoint["path_parameters"]
-        ]
-        for field in endpoint["query"]:
-            schema = documented_type(field["type"])
-            if field["name"] == "limit":
-                schema.update({"default": 20, "minimum": 1, "maximum": 100})
-            operation["parameters"].append({
-                "name": field["name"], "in": "query", "required": field["required"],
-                "description": field["description"], "schema": schema,
-            })
-        if endpoint["idempotent"]:
-            operation["parameters"].append({
-                "name": "Idempotency-Key", "in": "header", "required": True,
-                "description": IDEMPOTENCY_DESCRIPTION, "example": '"request-001"',
-                "schema": {"type": "string", "maxLength": 256, "pattern": '^"[\\x20-\\x21\\x23-\\x7e]+"$'},
-            })
-        if endpoint["body"]:
-            operation["requestBody"] = request_body(endpoint)
-        operation["responses"] = {
-            str(endpoint["status"]): success_response(endpoint, settings),
-            **error_responses(endpoint),
-        }
+    for route in routes:
+        if not isinstance(route, APIRoute) or not route.include_in_schema:
+            continue
+        for method in route.methods:
+            endpoint = endpoint_contract(method, route.path_format, route.status_code)
+            operation = document["paths"][route.path_format][method.lower()]
+            operation["security"] = [{"session": []}] if endpoint["authenticated"] else []
+            operation["parameters"] = [
+                {"name": field["name"], "in": "path", "required": True,
+                 "description": field["description"], "schema": documented_type(field["type"])}
+                for field in endpoint["path_parameters"]
+            ]
+            for field in endpoint["query"]:
+                schema = documented_type(field["type"])
+                if field["name"] == "limit":
+                    schema.update({"default": 20, "minimum": 1, "maximum": 100})
+                operation["parameters"].append({
+                    "name": field["name"], "in": "query", "required": field["required"],
+                    "description": field["description"], "schema": schema,
+                })
+            if endpoint["idempotent"]:
+                operation["parameters"].append({
+                    "name": "Idempotency-Key", "in": "header", "required": True,
+                    "description": IDEMPOTENCY_DESCRIPTION, "example": '"request-001"',
+                    "schema": {"type": "string", "maxLength": 256, "pattern": '^"[\\x20-\\x21\\x23-\\x7e]+"$'},
+                })
+            if endpoint["body"]:
+                operation["requestBody"] = request_body(endpoint)
+            operation["responses"] = {
+                str(endpoint["status"]): success_response(endpoint, settings),
+                **error_responses(endpoint),
+            }
     return document
