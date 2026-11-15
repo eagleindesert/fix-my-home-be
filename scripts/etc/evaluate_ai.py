@@ -130,7 +130,12 @@ def run(directory):
     settings.openai_model = frozen["manifest"]["model"]
     output_dir = directory / "runs"
     output_dir.mkdir(exist_ok=True)
-    with OpenAI(api_key=settings.openai_api_key.get_secret_value(), max_retries=0, timeout=60) as client:
+    with OpenAI(
+        api_key=settings.openai_api_key.get_secret_value(),
+        base_url=settings.openai_base_url.strip() or None,
+        max_retries=0,
+        timeout=60,
+    ) as client:
         for case in frozen["manifest"]["cases"]:
             for repetition in range(1, 4):
                 path = output_dir / f"{digest(case['id'])[:16]}-{repetition}.json"

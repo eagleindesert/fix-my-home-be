@@ -27,6 +27,8 @@ uv run python -m scripts.etc.evaluate_ai prepare dataset/manifest.json evaluatio
 
 ```bash
 export FMH_OPENAI_API_KEY='configured-outside-the-repository'
+# 별도 서버 사용 시 Responses API를 지원하는 기본 URL을 지정합니다.
+# export FMH_OPENAI_BASE_URL='https://ai.example.com/v1'
 uv run python -m scripts.etc.evaluate_ai run evaluation-results/v1
 uv run python -m scripts.etc.evaluate_ai report evaluation-results/v1
 ```

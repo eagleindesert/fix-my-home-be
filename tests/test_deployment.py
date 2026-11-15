@@ -600,7 +600,10 @@ def test_build_push_reprompts_invalid_input_without_repeating_lookup(tmp_path, p
     ("docker-compose.yaml", 8000),
     ("docker-compose-deployment.yaml", 8002),
 ])
-def test_compose_resolves_build_and_deployment_settings(compose_file, published_port):
+@pytest.mark.parametrize("openai_base_url", ["", "https://ai.example.test/v1"])
+def test_compose_resolves_build_and_deployment_settings(
+    compose_file, published_port, openai_base_url,
+):
     # An explicit empty env file keeps this check independent of private .env files.
     env = {key: value for key, value in os.environ.items()
            if not key.startswith(("FMH_", "LOCAL_", "IMAGE_", "COMPOSE_", "POSTGRES_", "DOCKER_SUBNET", "DOCKER_GATEWAY"))}
@@ -609,6 +612,7 @@ def test_compose_resolves_build_and_deployment_settings(compose_file, published_
         "FMH_ENVIRONMENT": "production", "FMH_COOKIE_SECURE": "true",
         "FMH_PUBLIC_ORIGIN": "https://deployment.example",
         "FMH_ROOT_PATH": "/fixmyhome/api",
+        "FMH_OPENAI_BASE_URL": openai_base_url,
         "FMH_DATABASE_URL": "postgresql+psycopg2://test:test@db:5432/test",
         "FMH_SESSION_SECRET": "testing-only-independent-secret-value",
         "POSTGRES_PASSWORD": "testing-only",
@@ -644,6 +648,7 @@ def test_compose_resolves_build_and_deployment_settings(compose_file, published_
             "http://localhost:8000" if local else "https://deployment.example"
         )
         assert service["environment"]["FMH_ROOT_PATH"] == ("" if local else "/fixmyhome/api")
+        assert service["environment"]["FMH_OPENAI_BASE_URL"] == openai_base_url
     assert config["services"]["be"]["depends_on"]["migrate"]["condition"] == "service_completed_successfully"
     assert config["services"]["worker"]["depends_on"]["db"]["condition"] == "service_healthy"
 

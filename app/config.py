@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     log_backups: int = Field(default=10, ge=1)
     openai_api_key: SecretStr = SecretStr("")
     openai_model: str = ""
+    openai_base_url: str = ""
     worker_poll_seconds: float = Field(default=1, ge=0.05)
     pdf_font: Path = Path("/usr/share/fonts/truetype/nanum/NanumGothic.ttf")
     seed_password: SecretStr = SecretStr("")

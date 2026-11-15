@@ -51,7 +51,12 @@ def generate(settings, prompt, photos, timeout):
     for photo in photos:
         content.append({"type": "input_text", "text": f"photoId={photo['photoId']}"})
         content.append({"type": "input_image", "image_url": "data:image/jpeg;base64,"+base64.b64encode(photo["bytes"]).decode()})
-    with OpenAI(api_key=settings.openai_api_key.get_secret_value(), timeout=timeout, max_retries=0) as client:
+    with OpenAI(
+        api_key=settings.openai_api_key.get_secret_value(),
+        base_url=settings.openai_base_url.strip() or None,
+        timeout=timeout,
+        max_retries=0,
+    ) as client:
         result = client.responses.create(model=settings.openai_model, instructions=SYSTEM_PROMPT,
             input=[{"role": "user", "content": content}], store=False,
             text={"format": {"type": "json_schema", "name": "repair_assistance", "strict": True, "schema": response_schema()}})
