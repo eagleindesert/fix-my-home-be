@@ -131,10 +131,11 @@ def render_document(
         content = content.rstrip("\r\n") + newline * 2 + section
         for index, entry in enumerate(extras):
             leading = layout_newlines(entry.leading, newline)
+            # 양식에서 빠진 키가 기존 추가 설정보다 앞에 올 수도 있다.
+            # 위치와 관계없이 이전 제목과 그 앞의 양식 맺음말을 제거한다.
+            if section in leading:
+                leading = leading.rsplit(section, 1)[1]
             if index == 0:
-                # 재실행 시 양식의 맺음 주석과 이전에 넣은 추가 설정 제목을 중복하지 않는다.
-                if section in leading:
-                    leading = leading.rsplit(section, 1)[1]
                 leading = leading.lstrip("\r\n")
             content += leading + entry.assignment.rstrip("\r\n") + newline
         if existing.entries[-1].key not in template_keys:

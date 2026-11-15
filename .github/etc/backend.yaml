@@ -30,7 +30,8 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y fonts-droid-fallback
       - run: uv run pytest -q
       - run: |
-          for script in scripts/*.sh scripts/etc/*.sh; do
+          shopt -s nullglob
+          for script in start.sh scripts/*.sh scripts/etc/*.sh; do
             bash -n "$script"
           done
 

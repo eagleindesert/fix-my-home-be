@@ -287,6 +287,50 @@ def test_layout_sync_preserves_newlines_inside_multiline_values(tmp_path):
     assert target.read_bytes() == b"# Updated layout\r\nFIRST=custom\r\n" + original_secret
 
 
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_removed_key_joins_existing_extras_without_duplicate_sections(tmp_path, newline):
+    example = tmp_path / ".env.example"
+    example.write_text(
+        "# Settings\nKEEP=default\n# Old setting\nOLD=default\n# Template footer\n"
+    )
+    target = tmp_path / ".env"
+    target.write_bytes((
+        "KEEP=custom\nOLD='dummy-secret'\n# Extra note\nCUSTOM=stored\n# Local footer\n"
+    ).replace("\n", newline).encode())
+    assert run_sync(tmp_path) == 0
+
+    example.write_text("# Settings\nKEEP=default\n# New footer\n")
+    assert run_sync(tmp_path) == 0
+
+    expected = (
+        "# Settings\nKEEP=custom\n# New footer\n\n" + sync_env.EXTRA_SECTION
+        + "# Old setting\nOLD='dummy-secret'\n# Extra note\nCUSTOM=stored\n# Local footer\n"
+    ).replace("\n", newline).encode()
+    assert target.read_bytes() == expected
+    metadata = target.stat()
+    assert run_sync(tmp_path) == 0
+    assert sync_env.file_version(target.stat()) == sync_env.file_version(metadata)
+
+
+def test_repairs_already_duplicated_extra_sections_without_losing_notes(tmp_path):
+    (tmp_path / ".env.example").write_text("KEEP=default\n")
+    target = tmp_path / ".env"
+    target.write_text(
+        "KEEP=custom\n\n" + sync_env.EXTRA_SECTION + "# Old note\nOLD=stored\n\n"
+        + sync_env.EXTRA_SECTION + "# Custom note\nCUSTOM=stored\n"
+    )
+
+    assert run_sync(tmp_path) == 0
+
+    content = target.read_text()
+    assert content.count(sync_env.EXTRA_SECTION) == 1
+    assert "# Old note\nOLD=stored\n" in content
+    assert "# Custom note\nCUSTOM=stored\n" in content
+    metadata = target.stat()
+    assert run_sync(tmp_path) == 0
+    assert sync_env.file_version(target.stat()) == sync_env.file_version(metadata)
+
+
 def test_template_without_final_newline_is_unchanged_on_second_run(tmp_path):
     (tmp_path / ".env.example").write_text("# Updated layout\nSECRET=default")
     target = tmp_path / ".env"

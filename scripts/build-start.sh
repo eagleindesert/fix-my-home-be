@@ -2,17 +2,47 @@
 set -euo pipefail
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
-if (( $# > 1 )); then
-    printf '사용법: scripts/build-start.sh [로컬 버전]\n' >&2
-    exit 2
-fi
-if (( $# == 1 )); then
-    if [[ ! $1 =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
-        printf '유효한 Docker 이미지 버전이 필요합니다.\n' >&2
-        exit 2
-    fi
-    export LOCAL_IMAGE_TAG="$1"
-fi
+usage() {
+    printf '사용법: scripts/build-start.sh [로컬 버전] [--platform linux/amd64|linux/arm64]\n'
+}
+
+version=
+platform=
+while (( $# )); do
+    case "$1" in
+        --platform)
+            if (( $# < 2 )) || [[ -n $platform || -z $2 ]]; then
+                usage >&2
+                exit 2
+            fi
+            platform=$2
+            shift 2
+            ;;
+        --help|-h) usage; exit 0 ;;
+        -*)
+            usage >&2
+            exit 2
+            ;;
+        *)
+            if [[ -n $version ]]; then
+                usage >&2
+                exit 2
+            fi
+            version=$1
+            if [[ ! $version =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+                printf '유효한 Docker 이미지 버전이 필요합니다.\n' >&2
+                exit 2
+            fi
+            export LOCAL_IMAGE_TAG="$version"
+            shift
+            ;;
+    esac
+done
+case "$platform" in
+    "") ;;
+    linux/arm64|linux/amd64) export LOCAL_IMAGE_PLATFORM="$platform" ;;
+    *) usage >&2; exit 2 ;;
+esac
 
 builder_name="fmh-${USER:-builder}-$$"
 builder_created=false
