@@ -7,13 +7,13 @@ from app.contract_data import ENDPOINTS, ENUM_DESCRIPTIONS, ENUMS, SCHEMA_DESCRI
 from app.contracts import type_schema
 from app.errors import DomainError
 
-API_DESCRIPTION = """요구사항 v1.7 · FE·BE 분업 v1.4 · API v0.1 기준입니다. 기본 경로는 `/api/v1`입니다.
+API_DESCRIPTION = """요구사항 v1.7 · FE·BE 분업 v1.4 · API v0.1 기준입니다. 기본 경로는 `/v1`입니다.
 
 ### 인증과 실행 순서
 
-1. 사전 발급 계정으로 `POST /api/v1/auth/login`의 **Try it out**을 실행합니다.
+1. 사전 발급 계정으로 `POST /v1/auth/login`의 **Try it out**을 실행합니다.
 2. 브라우저가 받은 HttpOnly 세션 쿠키를 이후 같은 출처의 요청에 자동으로 보냅니다.
-3. `GET /api/v1/auth/me`로 현재 역할을 확인하고, 기사 기능은 `PATCH /api/v1/auth/role`로
+3. `GET /v1/auth/me`로 현재 역할을 확인하고, 기사 기능은 `PATCH /v1/auth/role`로
    허용된 `TECHNICIAN` 역할로 전환한 뒤 호출합니다.
 
 쿠키 값을 Authorize 창에 직접 입력하지 않습니다. Swagger UI와 API를 같은 호스트에서 열고,
@@ -220,7 +220,7 @@ def enrich_openapi(document, settings):
         "description": "같은 출처에서 로그인하면 브라우저가 세션 쿠키를 자동 전송합니다. Authorize에 직접 입력하지 않습니다.",
     }}
     for endpoint in ENDPOINTS:
-        operation = document["paths"]["/api/v1" + endpoint["path"]][endpoint["method"].lower()]
+        operation = document["paths"]["/v1" + endpoint["path"]][endpoint["method"].lower()]
         operation["tags"] = [endpoint["tag"]]
         operation["description"] = endpoint["description"]
         operation["security"] = [{"session": []}] if endpoint["authenticated"] else []

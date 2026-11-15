@@ -65,10 +65,10 @@ def client(environment):
 
 
 def login(client, login_id="owner", role="USER"):
-    response = client.post("/api/v1/auth/login", json={"loginId": login_id, "password": "testing-password-123"})
+    response = client.post("/v1/auth/login", json={"loginId": login_id, "password": "testing-password-123"})
     assert response.status_code == 200, response.text
     if role != "USER":
-        response = client.patch("/api/v1/auth/role", json={"role": role})
+        response = client.patch("/v1/auth/role", json={"role": role})
         assert response.status_code == 200, response.text
     return response.json()["data"]
 
@@ -90,7 +90,7 @@ def result(response, kind=None, status=200):
 def create_request(client, key="request-key"):
     metadata = {"symptom": "싱크대 수전에서 물이 샙니다.", "photos": [{"capturedOn": None, "dateConfirmed": False, "description": "수전 사진"}],
                 "region": {"city": "서울특별시", "district": "테스트구", "neighborhood": "테스트동", "regionId": "region-test"}}
-    return result(client.post("/api/v1/requests", headers={"Idempotency-Key": f'"{key}"'},
+    return result(client.post("/v1/requests", headers={"Idempotency-Key": f'"{key}"'},
                              data={"metadata": json.dumps(metadata)}, files=[("files", ("sink.png", picture(), "image/png"))]), "RequestDTO", 201)
 
 
@@ -98,11 +98,11 @@ def setup_item(client, root):
     item = root["workItems"][0]
     start = (now()+timedelta(days=1)).replace(hour=5, minute=0, second=0, microsecond=0)
     preference = {"mode": "FLEXIBLE", "fixedStartAt": None, "ranges": [{"startAt": iso(start-timedelta(hours=2)), "endAt": iso(start+timedelta(hours=4))}]}
-    item = result(client.patch(f"/api/v1/work-items/{item['workItemId']}", json={"expectedRevision": item["revision"],
+    item = result(client.patch(f"/v1/work-items/{item['workItemId']}", json={"expectedRevision": item["revision"],
         "facts": {"part": "싱크대", "workType": "수전 교체", "quantity": 1, "fields": ["PLUMBING"], "visitPreference": preference}}), "WorkItemDTO")
     summary = {"text": "수전에서 누수 관찰, 원인은 현장 점검 필요", "facts": [], "unknowns": ["누수 원인"], "riskSignals": [], "limitations": [], "onsiteInspectionNeeded": True}
-    item = result(client.put(f"/api/v1/work-items/{item['workItemId']}/confirmation", headers={"Idempotency-Key": '"confirm-item"'},
+    item = result(client.put(f"/v1/work-items/{item['workItemId']}/confirmation", headers={"Idempotency-Key": '"confirm-item"'},
                             json={"expectedRevision": item["revision"], "sourceRevision": item["sourceRevision"], "summary": summary, "fields": ["PLUMBING"], "confirmed": True}), "WorkItemDTO")
-    root = result(client.get(f"/api/v1/requests/{root['requestId']}"), "RequestDTO")
-    root = result(client.put(f"/api/v1/requests/{root['requestId']}/visit-details", json={"expectedRevision": root["revision"], "visitDetails": {"address": "서울특별시 테스트구 테스트동 101호", "contact": "010-1234-5678"}, "confirmed": True}), "RequestDTO")
+    root = result(client.get(f"/v1/requests/{root['requestId']}"), "RequestDTO")
+    root = result(client.put(f"/v1/requests/{root['requestId']}/visit-details", json={"expectedRevision": root["revision"], "visitDetails": {"address": "서울특별시 테스트구 테스트동 101호", "contact": "010-1234-5678"}, "confirmed": True}), "RequestDTO")
     return root, item, start

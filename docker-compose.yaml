@@ -13,6 +13,7 @@ x-local-application: &local-application
     FMH_ENVIRONMENT: development
     FMH_COOKIE_SECURE: "false"
     FMH_PUBLIC_ORIGIN: http://localhost:8000
+    FMH_ROOT_PATH: ""
 
 services:
   db:

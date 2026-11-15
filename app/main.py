@@ -177,7 +177,10 @@ def create_app(settings=None, factory=None):
     logger = configure_logging(settings)
     app = FastAPI(title="고쳐야집 Backend API", version="0.1.0",
                   description=API_DESCRIPTION,
-                  docs_url="/api/docs", openapi_url="/api/openapi.json", redoc_url=None,
+                  docs_url="/docs", openapi_url="/openapi.json", redoc_url=None,
+                  redirect_slashes=False,
+                  root_path=settings.root_path,
+                  servers=[{"url": settings.root_path}] if settings.root_path else [],
                   swagger_ui_parameters=SWAGGER_UI_PARAMETERS)
     app.state.settings, app.state.factory = settings, factory
 
@@ -231,14 +234,15 @@ def create_app(settings=None, factory=None):
         return route
 
     for index, endpoint in enumerate(ENDPOINTS, 1):
-        app.add_api_route("/api/v1"+endpoint["path"], handler(endpoint), methods=[endpoint["method"]],
+        app.add_api_route("/v1"+endpoint["path"], handler(endpoint), methods=[endpoint["method"]],
                           name=f"api_{index:02d}", summary=endpoint["summary"], status_code=endpoint["status"])
 
     def openapi():
         if app.openapi_schema is None:
             app.openapi_schema = enrich_openapi(
                 get_openapi(title=app.title, version=app.version,
-                            description=app.description, routes=app.routes), settings)
+                            description=app.description, routes=app.routes,
+                            servers=app.servers), settings)
         return app.openapi_schema
     app.openapi = openapi
     app.add_middleware(RequestBoundary, settings=settings)

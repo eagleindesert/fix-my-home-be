@@ -60,7 +60,7 @@ def test_log_rotation_compresses_and_bounds_archives(tmp_path):
     settings = Settings(log_dir=tmp_path, log_max_bytes=1024, log_backups=2)
     logger = configure_logging(settings, "rotation-test")
     for index in range(60):
-        logger.info("request", extra={"fields": {"method": "PATCH", "uri": "/api/v1/requests/example", "statusCode": 409,
+        logger.info("request", extra={"fields": {"method": "PATCH", "uri": "/v1/requests/example", "statusCode": 409,
                     "clientIp": "203.0.113.1", "userId": "user", "elapsedMs": index}})
     archives = list(tmp_path.glob("*.gz"))
     assert len(archives) == 2

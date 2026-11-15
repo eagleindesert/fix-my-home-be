@@ -1,6 +1,6 @@
 # 고쳐야집 Backend API Specification (v0.1)
 
-> Base URL: `/api/v1` (연동안, 미정)
+> Base URL: `/v1` (백엔드 내부 경로). Nginx 공개 접두사가 `/fixmyhome/api`이면 외부 Base URL은 `/fixmyhome/api/v1`이다.
 >
 > 인증 방식: 브라우저 쿠키 기반 세션 인증. 사전 발급 테스트 계정으로 로그인하면 서버가 세션을 생성하고 세션 식별자를 쿠키로 발급한다. 이후 요청의 세션 쿠키로 인증하고 활성 역할·관계별 권한을 검사한다.
 >
@@ -76,7 +76,7 @@
 
 | 항목 | 현재 정의 | 결정할 값·관련 위치 |
 | --- | --- | --- |
-| Base URL·세션 쿠키 | `/api/v1` 제안, `Cookie`·`Set-Cookie` 사용 | 배포 경로, 쿠키 이름·Domain·Path·Secure·HttpOnly·SameSite·유효기간 및 만료 헤더; 인증 API |
+| Base URL·세션 쿠키 | 내부 `/v1`, Nginx 공개 접두사 별도 적용, `Cookie`·`Set-Cookie` 사용 | 배포 경로, 쿠키 이름·Domain·Path·Secure·HttpOnly·SameSite·유효기간 및 만료 헤더; 인증 API |
 | 포트폴리오 사진 | multipart의 반복 `files`와 JSON 문자열 `source` | MIME 허용 목록·파일당 최대 Byte·최대 파트 수; `POST /technicians/me/portfolio-photos` |
 | 일정 날짜 범위 | `date`, `from ≤ to` | 최대 조회·교체 일수와 경계 날짜 포함 여부·경계를 걸친 일정 반환/교체 범위; 일정 GET·PUT |
 | 멱등 키 보존 | 같은 요청의 재전송에 같은 키 사용 | 보존 기간·만료 후 재사용 응답; 이 값이 정해지기 전 만료 후 중복 실행을 가정하지 않음 |

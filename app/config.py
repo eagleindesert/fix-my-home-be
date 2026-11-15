@@ -1,9 +1,10 @@
 """환경변수 설정. 배포 호스트의 .env는 Compose만 읽는다."""
 
+import re
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,6 +20,7 @@ class Settings(BaseSettings):
     session_hours: int = Field(default=12, ge=1, le=720)
     cookie_secure: bool = False
     public_origin: str = "http://localhost:8000"
+    root_path: str = ""
     trusted_proxy_ips: str = "127.0.0.1,::1"
     storage_dir: Path = Path(".runtime/media")
     log_dir: Path = Path(".runtime/logs")
@@ -30,6 +32,17 @@ class Settings(BaseSettings):
     pdf_font: Path = Path("/usr/share/fonts/truetype/nanum/NanumGothic.ttf")
     seed_password: SecretStr = SecretStr("")
     seed_demo: bool = False
+
+    @field_validator("root_path")
+    @classmethod
+    def normalize_root_path(cls, value):
+        if value in ("", "/"):
+            return ""
+        path = value.rstrip("/")
+        if (not re.fullmatch(r"(?:/[A-Za-z0-9._~-]+)+", path)
+                or any(segment in (".", "..") for segment in path.split("/"))):
+            raise ValueError("FMH_ROOT_PATH는 /fixmyhome 같은 경로 또는 빈 값이어야 합니다.")
+        return path
 
     @model_validator(mode="after")
     def production_secrets(self):

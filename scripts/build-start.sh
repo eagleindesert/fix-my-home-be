@@ -68,5 +68,5 @@ BUILDX_BUILDER="$builder_name" COMPOSE_BAKE=true \
 
 address=$(docker compose -f docker-compose.yaml port be 8000)
 printf '\n접속 주소 (현재 호스트):\n'
-printf '  Swagger UI: http://%s/api/docs\n' "$address"
+printf '  Swagger UI: http://%s/docs\n' "$address"
 printf '  상태 확인: http://%s/health/ready\n' "$address"

@@ -1,6 +1,6 @@
 # 고쳐야집 Backend
 
-FastAPI · SQLAlchemy · PostgreSQL · Alembic 기반 API와 DB 작업 큐입니다. 요구사항 v1.7, FE·BE 분업 v1.4, API v0.1의 79개 메서드·경로를 `/api/v1`에 연결했습니다. API 문서는 `/api/docs`, OpenAPI JSON은 `/api/openapi.json`입니다.
+FastAPI · SQLAlchemy · PostgreSQL · Alembic 기반 API와 DB 작업 큐입니다. 요구사항 v1.7, FE·BE 분업 v1.4, API v0.1의 79개 메서드·경로를 내부 `/v1`에 연결했습니다. API 문서는 `/docs`, OpenAPI JSON은 `/openapi.json`입니다. 공개 접두사 `/fixmyhome/api`는 호스트 Nginx에서 지정합니다.
 
 실제 서비스 자료와 검증 자료는 저장소에 포함하지 않습니다. 빈 DB에서도 로그인 계정 발급과 사진·증상 접수는 가능하며, 기사 예약에는 운영자가 검증한 지역·일정·이동 자료가 필요합니다. AI는 선택 기능이고 키·모델이 없으면 해당 작업만 실패합니다.
 
@@ -28,11 +28,22 @@ uv run pytest -q
 
 ## Swagger UI와 API 명세
 
-서버 실행 후 Swagger UI에서 API를 확인하고 호출할 수 있습니다. Python 직접 실행과 로컬 Compose는 [localhost:8000](http://localhost:8000/api/docs), 배포 Compose는 배포 호스트의 [localhost:8002](http://localhost:8002/api/docs)를 사용합니다. 운영에서는 같은 도메인의 `/api/docs`에 접속합니다. OpenAPI JSON은 `/api/openapi.json`이며 호스트 Nginx의 `/api/` 포워딩 설정으로 함께 제공됩니다.
+서버 실행 후 Swagger UI에서 API를 확인하고 호출할 수 있습니다. Python 직접 실행과 로컬 Compose는 [localhost:8000/docs](http://localhost:8000/docs), 배포 Compose는 배포 호스트의 [localhost:8002/docs](http://localhost:8002/docs)를 사용합니다. FastAPI 내부 경로에는 `/api`를 붙이지 않습니다.
+
+Nginx에서 `/fixmyhome/api/`를 `http://127.0.0.1:8002/`로 전달하면 공개 Swagger 주소는 `/fixmyhome/api/docs`, 명세 파일은 `/fixmyhome/api/openapi.json`, API Base URL은 `/fixmyhome/api/v1`입니다. `proxy_pass` 끝의 `/`가 공개 접두사를 제거합니다. 앱에는 [FastAPI의 `root_path`](https://fastapi.tiangolo.com/advanced/behind-a-proxy/)로 외부 접두사를 알려 Swagger의 명세 조회와 **Try it out**이 올바른 공개 주소를 사용하게 합니다.
+
+VM의 `.env`는 사용자가 다음과 같이 설정합니다. `FMH_PUBLIC_ORIGIN`에는 경로를 포함하지 않습니다.
+
+```dotenv
+FMH_PUBLIC_ORIGIN=https://your-domain.example
+FMH_ROOT_PATH=/fixmyhome/api
+```
+
+앱 코드와 배포 Compose를 반영한 새 이미지를 빌드·푸시한 뒤 새 버전으로 배포해야 합니다. 기존 이미지에는 환경변수만 추가해도 이 변경이 적용되지 않습니다. [Nginx 예시](deploy/nginx.conf.example)의 경로 전달 방식도 함께 맞춥니다. 접두사가 없는 배포에서는 `FMH_ROOT_PATH`를 비우고, 로컬 Compose는 항상 빈 값으로 덮어씁니다.
 
 79개 API를 12개 업무 분류로 묶고 검색 필터를 제공합니다. 각 API에는 용도·권한·선행 조건, 종류별 처리 조건, 요청 필드와 DTO, Enum의 의미, 성공 응답·파일 형식, 상태 코드별 오류 설명이 표시됩니다. `Idempotency-Key`의 큰따옴표 포함 예시와 multipart `metadata`의 JSON 문자열 예시도 확인할 수 있습니다.
 
-사전 발급 계정으로 `POST /api/v1/auth/login`의 **Try it out**을 먼저 실행합니다. 브라우저가 받은 HttpOnly 쿠키로 이후 요청을 인증하므로 Authorize에 쿠키를 직접 입력하지 않습니다. 기사 API를 호출하려면 `PATCH /api/v1/auth/role`로 허용된 기사 역할로 전환합니다. Swagger UI의 접속 출처와 `FMH_PUBLIC_ORIGIN`을 일치시키고 운영에서는 HTTPS를 사용합니다. 로컬 Compose의 허용 출처는 `http://localhost:8000`으로 지정되어 있습니다.
+사전 발급 계정으로 `POST /v1/auth/login`의 **Try it out**을 먼저 실행합니다. 공개 접두사는 Swagger의 서버 URL에서 자동 적용합니다. 브라우저가 받은 HttpOnly 쿠키로 이후 요청을 인증하므로 Authorize에 쿠키를 직접 입력하지 않습니다. 기사 API를 호출하려면 `PATCH /v1/auth/role`로 허용된 기사 역할로 전환합니다. Swagger UI의 접속 출처와 `FMH_PUBLIC_ORIGIN`을 일치시키고 운영에서는 HTTPS를 사용합니다. 로컬 Compose의 허용 출처는 `http://localhost:8000`으로 지정되어 있습니다.
 
 전송 계약과 엔드포인트 설명의 원문은 [API 명세서](docs/API명세서.md)입니다. 원문 수정 후 다음 명령으로 `app/contract_data.py`를 갱신합니다. 생성한 상수는 이미지에서 바이트코드로 제공되므로 실행 서버에 Markdown 원본이 필요하지 않습니다. Swagger 공통 사용 안내·표시 옵션은 `app/openapi.py`에서 관리합니다.
 
@@ -123,6 +134,8 @@ docker compose -f docker-compose-deployment.yaml up -d
 ```
 
 버전 없는 실행은 강제 pull·재생성을 추가하지 않습니다. 버전만 지정하면 기존 플랫폼을 유지하고, `--platform`을 함께 지정하면 `IMAGE_PLATFORM`도 저장합니다. 플랫폼 기본값은 배포 Compose의 `linux/arm64`입니다. `start.sh`와 `build-start.sh`는 실행 후 현재 호스트에서 사용할 Swagger UI·상태 확인 주소를 출력합니다.
+
+`start.sh`는 API 공통 경로 `/v1`을 포함한 현재 호스트의 Base URL을 출력합니다. 주소는 실행 중인 컨테이너의 Compose 포트 매핑에서 가져오며, 기본 배포 설정에서는 `http://127.0.0.1:8002/v1`입니다. 명세서의 상대 경로를 이어 붙여 호출합니다. 예를 들어 로그인 주소는 `http://127.0.0.1:8002/v1/auth/login`입니다. VM 외부에서는 Nginx의 도메인과 공개 접두사를 사용합니다. `/fixmyhome/api`로 배포했다면 외부 로그인 경로는 `/fixmyhome/api/v1/auth/login`입니다.
 
 버전 변경은 여러 줄 값·빈 값·주석을 보존하며 이미지 선택 설정만 수정합니다. 형식 오류나 중복 키가 있으면 값 없이 오류를 알리고 중단합니다. pull 실패 또는 pull 도중 환경파일이 변경되면 기존 파일을 덮어쓰지 않습니다. 성공 시 `0600` 임시 파일을 원자적으로 교체하므로 이후 직접 실행하는 Compose 명령에도 저장한 버전과 플랫폼이 적용됩니다. 별도로 export한 `IMAGE_TAG`·`IMAGE_PLATFORM`은 Compose의 환경변수 우선순위에 따라 `.env`보다 우선합니다.
 

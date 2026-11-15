@@ -161,5 +161,6 @@ fi
 
 address=$(docker compose -f docker-compose-deployment.yaml port be 8000)
 printf '\n접속 주소 (현재 호스트):\n'
-printf '  Swagger UI: http://%s/api/docs\n' "$address"
+printf '  Base URL: http://%s/v1\n' "$address"
+printf '  Swagger UI: http://%s/docs\n' "$address"
 printf '  상태 확인: http://%s/health/ready\n' "$address"

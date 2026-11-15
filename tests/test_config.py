@@ -109,3 +109,31 @@ def test_development_still_accepts_the_default_secret(production_environment, mo
 
     assert settings.session_secret.get_secret_value() == "development-only-change-this-secret"
     assert settings.cookie_secure is False
+
+
+@pytest.mark.parametrize("value, expected", [
+    ("", ""), ("/", ""), ("/fixmyhome", "/fixmyhome"),
+    ("/fixmyhome/", "/fixmyhome"), ("/fixmyhome/api/", "/fixmyhome/api"),
+    ("/services/fix-my-home", "/services/fix-my-home"),
+])
+def test_proxy_root_path_is_normalized(production_environment, monkeypatch, value, expected):
+    monkeypatch.setenv("FMH_ROOT_PATH", value)
+
+    assert Settings().root_path == expected
+
+
+@pytest.mark.parametrize("value", [
+    "missing-leading-slash", "https://example.test/fixmyhome", "//example.test",
+    "/services//fixmyhome", "/services/../fixmyhome", "/fixmyhome?query=value",
+    "/fixmyhome#fragment", "/fixmyhome with space",
+])
+def test_invalid_proxy_root_path_is_rejected_without_echoing_values(
+    production_environment, monkeypatch, value,
+):
+    monkeypatch.setenv("FMH_ROOT_PATH", value)
+
+    with pytest.raises(ValidationError) as error:
+        Settings()
+
+    assert "FMH_ROOT_PATH" in str(error.value)
+    assert_sanitized(error.value, value)

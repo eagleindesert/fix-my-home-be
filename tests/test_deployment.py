@@ -58,7 +58,9 @@ def test_start_without_arguments_is_plain_compose(tmp_path, deployment):
         "compose -f docker-compose-deployment.yaml up -d",
         "compose -f docker-compose-deployment.yaml port be 8000",
     ]
-    assert "http://127.0.0.1:18000/api/docs" in completed.stdout
+    assert "  Base URL: http://127.0.0.1:18000/v1\n" in completed.stdout
+    assert completed.stdout.count("Base URL:") == 1
+    assert "http://127.0.0.1:18000/docs" in completed.stdout
     assert "http://127.0.0.1:18000/health/ready" in completed.stdout
     assert (project / ".env").read_bytes() == original
 
@@ -72,7 +74,9 @@ def test_version_pull_then_persist_and_start(tmp_path, deployment):
         "compose -f docker-compose-deployment.yaml up -d",
         "compose -f docker-compose-deployment.yaml port be 8000",
     ]
-    assert "http://127.0.0.1:18000/api/docs" in completed.stdout
+    assert "  Base URL: http://127.0.0.1:18000/v1\n" in completed.stdout
+    assert completed.stdout.count("Base URL:") == 1
+    assert "http://127.0.0.1:18000/docs" in completed.stdout
     value = (project / ".env").read_text()
     assert "IMAGE_TAG=v1.2.3\n" in value and "UNRELATED=preserved\n" in value
     assert value.count("IMAGE_TAG=") == 1
@@ -319,7 +323,7 @@ fi
     ]
     if compose_exit == 0:
         expected_calls.append("compose -f docker-compose.yaml port be 8000")
-        assert "http://127.0.0.1:18000/api/docs" in completed.stdout
+        assert "http://127.0.0.1:18000/docs" in completed.stdout
         assert "http://127.0.0.1:18000/health/ready" in completed.stdout
     else:
         assert "접속 주소" not in completed.stdout
@@ -604,6 +608,7 @@ def test_compose_resolves_build_and_deployment_settings(compose_file, published_
         "IMAGE_PLATFORM": "linux/arm64", "IMAGE_TAG": "deployed-version",
         "FMH_ENVIRONMENT": "production", "FMH_COOKIE_SECURE": "true",
         "FMH_PUBLIC_ORIGIN": "https://deployment.example",
+        "FMH_ROOT_PATH": "/fixmyhome/api",
         "FMH_DATABASE_URL": "postgresql+psycopg2://test:test@db:5432/test",
         "FMH_SESSION_SECRET": "testing-only-independent-secret-value",
         "POSTGRES_PASSWORD": "testing-only",
@@ -638,6 +643,7 @@ def test_compose_resolves_build_and_deployment_settings(compose_file, published_
         assert service["environment"]["FMH_PUBLIC_ORIGIN"] == (
             "http://localhost:8000" if local else "https://deployment.example"
         )
+        assert service["environment"]["FMH_ROOT_PATH"] == ("" if local else "/fixmyhome/api")
     assert config["services"]["be"]["depends_on"]["migrate"]["condition"] == "service_completed_successfully"
     assert config["services"]["worker"]["depends_on"]["db"]["condition"] == "service_healthy"
 

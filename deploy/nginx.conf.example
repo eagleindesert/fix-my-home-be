@@ -9,18 +9,23 @@ server {
     client_max_body_size 51m;
     proxy_read_timeout 75s;
 
-    location /api/ {
+    # 상태 확인은 로컬 전용입니다. 접두사가 중복된 요청에도 같은 제한을 적용합니다.
+    # 정규식 location에는 proxy_pass의 URI 부분을 지정하지 않습니다.
+    location ~ ^/(?:fixmyhome/api/)*health(?:/|$) {
+        allow 127.0.0.1;
+        deny all;
         proxy_pass http://127.0.0.1:8002;
+    }
+
+    # FMH_ROOT_PATH=/fixmyhome/api로 설정합니다.
+    # proxy_pass 끝의 /가 /fixmyhome/api/를 제거합니다.
+    # 외부 /fixmyhome/api/docs -> 내부 /docs
+    location /fixmyhome/api/ {
+        proxy_pass http://127.0.0.1:8002/;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    location /health/ {
-        allow 127.0.0.1;
-        deny all;
-        proxy_pass http://127.0.0.1:8002;
     }
 
     location / {
