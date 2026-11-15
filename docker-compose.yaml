@@ -12,7 +12,7 @@ x-local-application: &local-application
   environment:
     FMH_ENVIRONMENT: development
     FMH_COOKIE_SECURE: "false"
-    FMH_PUBLIC_ORIGIN: ${FMH_LOCAL_ORIGIN:-http://localhost:8000}
+    FMH_PUBLIC_ORIGIN: ${FMH_LOCAL_ORIGIN:-http://localhost:8002}
 
 services:
   db:

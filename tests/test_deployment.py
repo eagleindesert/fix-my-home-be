@@ -433,7 +433,7 @@ def test_local_compose_resolves_build_and_deployment_settings():
         assert service["environment"]["FMH_DATABASE_URL"] == env["FMH_DATABASE_URL"]
         assert service["environment"]["FMH_ENVIRONMENT"] == "development"
         assert service["environment"]["FMH_COOKIE_SECURE"] == "false"
-        assert service["environment"]["FMH_PUBLIC_ORIGIN"] == "http://localhost:8000"
+        assert service["environment"]["FMH_PUBLIC_ORIGIN"] == "http://localhost:8002"
     assert config["services"]["be"]["depends_on"]["migrate"]["condition"] == "service_completed_successfully"
     assert config["services"]["worker"]["depends_on"]["db"]["condition"] == "service_healthy"
 

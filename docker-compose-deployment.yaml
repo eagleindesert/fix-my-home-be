@@ -67,7 +67,7 @@ services:
     <<: *application
     restart: unless-stopped
     ports:
-      - "127.0.0.1:${BE_PORT:-8000}:8000"
+      - "127.0.0.1:8002:8000"
     volumes:
       - media-data:/var/lib/fmh/media
       - log-data:/var/lib/fmh/logs
