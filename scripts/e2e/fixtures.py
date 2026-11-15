@@ -7,7 +7,7 @@ import secrets
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
-from PIL import Image
+from PIL import Image, ImageDraw
 from sqlalchemy import select
 
 from app.admin import create_account
@@ -50,6 +50,18 @@ def prepare(settings, factory, directory, base_url):
     }
     photo = directory / "photo.png"
     Image.new("RGB", (80, 60), (220, 80, 40)).save(photo)
+    wall_photos = {}
+    for name, bounds, color in (
+        ("before", (24, 20, 40, 34), (174, 151, 113)),
+        ("after", (18, 15, 49, 42), (147, 120, 91)),
+        ("unchanged", (24, 20, 40, 34), (174, 151, 113)),
+        ("incomparable", (4, 5, 34, 48), (113, 102, 81)),
+    ):
+        wall = Image.new("RGB", (80, 60), (238, 235, 221))
+        ImageDraw.Draw(wall).ellipse(bounds, fill=color)
+        path = directory / f"wall-{name}.png"
+        wall.save(path)
+        wall_photos[name] = str(path.resolve())
     source = {
         "title": "E2E 합성 자료", "reference": prefix, "version": prefix,
         "usageBasis": "직접 생성한 단색 이미지와 가상 수리 사례",
@@ -73,13 +85,14 @@ def prepare(settings, factory, directory, base_url):
         for name, roles in (
             ("user", ["USER"]), ("other", ["USER"]),
             ("technician", ["USER", "TECHNICIAN"]),
+            ("noCaseTechnician", ["USER", "TECHNICIAN"]),
         ):
             credentials = {"loginId": f"{prefix}-{name}", "password": secrets.token_urlsafe(24)}
             account = create_account(db, settings, credentials["loginId"], credentials["password"], roles)
             accounts[name] = credentials
             if name == "user":
                 owner_id = account.id
-            if name == "technician":
+            if "TECHNICIAN" in roles:
                 technician = db.scalar(select(Resource).where(
                     Resource.kind == "TECHNICIAN", Resource.owner_id == account.id,
                 ))
@@ -105,6 +118,53 @@ def prepare(settings, factory, directory, base_url):
                 "caseSha256": [case_hash(case), case_hash(updated_case)],
             }),
         ]
+        # 예약 동선은 서로 다른 인근 동 사이의 고정 모의 이동시간으로 검사한다.
+        neighbors = {name: f"{prefix}-{name}-location" for name in ("before", "after")}
+        for name, neighbor in neighbors.items():
+            references.append((f"{prefix}-{name}-region", "REGION", {
+                "city": "서울특별시", "district": "E2E테스트구",
+                "neighborhood": f"E2E{name}동", "representativeLocationId": neighbor,
+            }))
+        locations = [location_id, *neighbors.values()]
+        for start in locations:
+            for end in locations:
+                if start == end == location_id:
+                    continue
+                minutes = 10 if start in neighbors.values() and end in neighbors.values() else 5
+                references.append((f"{prefix}-travel-{locations.index(start)}-{locations.index(end)}", "TRAVEL", {
+                    "fromLocationId": start, "toLocationId": end, "minutes": minutes,
+                }))
+        guidance_source = {
+            "title": "E2E 모의 지원 안내", "reference": prefix, "version": prefix,
+            "verifiedAt": "2026-01-01", "verified": True,
+            "usageBasis": "테스트 전용 가상 절차 및 example.invalid 주소; 실제 수리 안내가 아님",
+        }
+        guide_id = f"{prefix}-self-help"
+        guide = {
+            "guideId": guide_id, "source": guidance_source, "applicable": True,
+            "conditions": ["E2E 모의 점검 대상"], "steps": ["가상 상태 표시를 확인한다."],
+            "supplies": [], "warnings": ["실제 기기를 조작하지 않는다."],
+            "prohibitions": ["실제 설비 분해 금지"], "stopConditions": ["실제 위험 징후가 있으면 중단한다."],
+        }
+        manufacturer = f"E2E-{prefix}"
+        official_url = f"https://example.invalid/{prefix}/manufacturer"
+        emergency_url = f"https://example.invalid/{prefix}/emergency"
+        references.extend([
+            (guide_id, "GUIDANCE", {"type": "SELF_HELP", "guides": [guide], "routes": []}),
+            (f"{prefix}-manufacturer", "GUIDANCE", {
+                "type": "MANUFACTURER_AS", "manufacturer": manufacturer,
+                "requiredFields": ["manufacturer"], "guides": [], "routes": [{
+                    "label": "E2E 가상 제조사 지원", "contact": official_url,
+                    "productSpecific": True, "source": guidance_source,
+                }],
+            }),
+            (f"{prefix}-emergency", "GUIDANCE", {
+                "type": "EMERGENCY", "guides": [guide], "routes": [{
+                    "label": "E2E 가상 긴급 대안", "contact": emergency_url,
+                    "productSpecific": False, "source": guidance_source,
+                }],
+            }),
+        ])
         for reference_id, kind, data in references:
             db.add(ReferenceData(
                 id=reference_id, kind=kind, version=prefix, verified=True, data=data,
@@ -133,6 +193,11 @@ def prepare(settings, factory, directory, base_url):
         "accounts": accounts, "region": region, "locationId": location_id,
         "workType": f"{prefix} 수전 교체", "photoPath": str(photo.resolve()),
         "source": source, "case": case, "updatedCase": updated_case,
+        "wallPhotos": wall_photos,
+        "neighborLocations": neighbors,
+        "emptyRegionId": f"{prefix}-before-region",
+        "guidance": {"guideId": guide_id, "manufacturer": manufacturer,
+                     "officialUrl": official_url, "emergencyUrl": emergency_url},
         "failedDeletionJobId": failed_job_id,
         "ai": {"expectedStatus": "SUCCEEDED", "expectedErrorCode": None},
     }

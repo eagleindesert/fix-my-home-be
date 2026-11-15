@@ -7,7 +7,7 @@ import re
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
@@ -84,6 +84,9 @@ def process(request, endpoint, body, files, query, settings, factory):
         with factory() as db, db.begin():
             if endpoint["method"] != "GET":
                 lock(db, request.url.path)
+                if endpoint["path"] == "/auth/signup" and db.bind.dialect.name == "sqlite":
+                    # 중복 조회 전에 쓰기 잠금을 확보해 동시 가입이 503 대신 409가 되도록 한다.
+                    db.execute(text("BEGIN IMMEDIATE"))
             actor = authenticate(db, request.cookies.get(settings.session_cookie))
             request.state.user_id = actor.account_id if actor else None
             if endpoint["authenticated"]:
@@ -175,7 +178,7 @@ def create_app(settings=None, factory=None):
     validate_runtime()
     settings, factory = settings or get_settings(), factory or session_factory()
     logger = configure_logging(settings)
-    app = FastAPI(title="고쳐야집 Backend API", version="0.1.0",
+    app = FastAPI(title="고쳐야집 Backend API", version="v1.1",
                   description=API_DESCRIPTION,
                   docs_url="/docs", openapi_url="/openapi.json", redoc_url=None,
                   redirect_slashes=False,

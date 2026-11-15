@@ -11,6 +11,16 @@ value() { jq -er "$1" "$RESPONSE_FILE"; }
 data() { jq -c '.data' "$RESPONSE_FILE"; }
 config_value() { jq -er "$1" "$CONFIG"; }
 
+scenario() {
+    local name=$1
+    shift
+    ACTIVE_SCENARIO=$name
+    printf '\n시나리오: %s\n' "$name"
+    "$@"
+    jq -cn --arg name "$name" '{name:$name, passed:true}' >> "$RUN_DIR/scenarios.jsonl"
+    ACTIVE_SCENARIO=
+}
+
 assert_json() {
     local expression=$1 description=$2
     shift 2
@@ -69,7 +79,8 @@ request() {
     rm -f "$RUN_DIR/request-body.json"
     jq -cn --argjson number "$CALL_COUNT" --arg endpoint "$endpoint" \
         --arg path "$path" --arg expected "$expected" --arg actual "$status" \
-        '{number:$number, endpoint:$endpoint, path:$path,
+        --arg scenario "$ACTIVE_SCENARIO" \
+        '{number:$number, endpoint:$endpoint, path:$path, scenario:$scenario,
           expected:($expected|tonumber), status:($actual|tonumber), passed:($actual==$expected)}' \
         >> "$RUN_DIR/results.jsonl"
     if [[ $status != "$expected" ]]; then
@@ -171,9 +182,16 @@ finish() {
     rm -rf -- "$COOKIE_DIR" "$RUN_DIR/local"
     rm -f -- "$RUN_DIR/request-body.json" "$HEADER_FILE"
     if [[ -f $RUN_DIR/endpoints.json ]]; then coverage || status=1; fi
+    if [[ -n $ACTIVE_SCENARIO ]]; then
+        jq -cn --arg name "$ACTIVE_SCENARIO" '{name:$name, passed:false}' >> "$RUN_DIR/scenarios.jsonl"
+    fi
     jq -n --argjson status "$status" --argjson requests "$CALL_COUNT" \
         --argjson assertions "$ASSERTIONS" --arg lastRequest "$LAST_REQUEST" \
-        '{passed:($status==0), exitCode:$status, requests:$requests,
+        --arg suite "$SUITE" --slurpfile scenarios "$RUN_DIR/scenarios.jsonl" \
+        --arg aiStatus "${AI_STATUS:-UNKNOWN}" \
+        '{passed:($status==0), suite:$suite, scenarios:$scenarios,
+          ai:{expectedStatus:$aiStatus, successPathsVerified:($status==0 and $aiStatus=="SUCCEEDED")},
+          exitCode:$status, requests:$requests,
           assertions:$assertions, lastRequest:$lastRequest}' > "$RUN_DIR/summary.json"
     if (( status == 0 )); then
         rm -f -- "$RESPONSE_FILE"

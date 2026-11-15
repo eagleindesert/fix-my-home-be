@@ -1,6 +1,34 @@
 #!/usr/bin/env bash
 # 모든 업무 상태 변경은 공개된 /v1 API를 통해 진행한다.
 
+check_signup() {
+    local credentials login_id account_id
+    login_id="$(config_value '.accounts.user.loginId')-$RUN_ID-signup"
+    credentials=$(json --arg login "$login_id" --arg password "$(config_value '.accounts.user.password')" \
+        '{loginId:$login,password:$password}')
+    request signup POST /auth/signup 201 "$credentials"
+    account_id=$(value '.data.accountId')
+    assert_json '.data.loginId == $login and .data.availableRoles == ["USER"]
+        and (.data | has("password") | not)' '별도 인증 없이 일반 사용자 회원가입' --arg login "$login_id"
+    if grep -Eiq '^set-cookie:' "$HEADER_FILE"; then
+        die '회원가입이 로그인 쿠키를 발급했습니다.'
+    fi
+    request signup GET /auth/me 401
+    assert_error AUTHENTICATION_REQUIRED
+
+    request signup POST /auth/signup 409 "$(jq -c '.password += "-duplicate"' <<< "$credentials")"
+    assert_error ACCOUNT_EXISTS
+    request signup POST /auth/login 200 "$credentials"
+    assert_json '.data.accountId == $id and .data.activeRole == "USER"
+        and .data.availableRoles == ["USER"] and .data.technicianId == null' \
+        '중복 가입이 기존 계정과 비밀번호를 변경하지 않음' --arg id "$account_id"
+    request signup GET /auth/me 200
+    assert_json '.data.accountId == $id' '가입한 계정으로 세션 유지' --arg id "$account_id"
+    request signup POST /auth/logout 204
+    request signup GET /auth/me 401
+    assert_error AUTHENTICATION_REQUIRED
+}
+
 check_public_and_sessions() {
     request anonymous GET /health/live 200
     assert_json '.status == "live"' '프로세스 상태'
@@ -93,6 +121,7 @@ new_request() {
         --form "files=@\"$PHOTO_PATH\";filename=e2e.png;type=image/png" --form-string "metadata=$METADATA"
     ROOT=$(data)
     REQUEST_ID=$(value '.data.requestId')
+    CREATED_REQUEST_IDS+=("$REQUEST_ID")
     ITEM_ID=$(value '.data.workItems[0].workItemId')
     PHOTO_ID=$(value '.data.photos.unknownDatePhotos[0].photoId')
     MEDIA_ID=$(value '.data.photos.unknownDatePhotos[0].media.mediaId')
@@ -390,7 +419,7 @@ close_and_delete() {
         '{expectedRevision:$root.revision,items:[$root.workItems[] |
           {workItemId:.workItemId,resolved:false,reason:"E2E 검증 완료"}]}')"
     assert_json '.data.status == "CLOSED"' '전체 요청 종료'
-    for target in "$MAIN_REQUEST_ID" "$CANCEL_REQUEST_ID"; do
+    for target in "${CREATED_REQUEST_IDS[@]}"; do
         request user POST /deletion-jobs 202 "$(json --arg target "$target" \
             '{targetType:"REQUEST",targetId:$target,includeAllReferences:true}')"
         job_id=$(value '.data.jobId')
@@ -419,14 +448,22 @@ close_and_delete() {
 }
 
 run_scenarios() {
-    check_public_and_sessions
-    prepare_technician
-    edit_request_and_records
+    scenario public_and_sessions check_public_and_sessions
+    scenario signup check_signup
+    scenario technician_profile prepare_technician
+    scenario request_and_records edit_request_and_records
     MAIN_REQUEST_ID=$REQUEST_ID MAIN_ITEM_ID=$ITEM_ID
-    check_ai
-    prepare_item
-    check_candidates
-    check_report_and_pdf
+    scenario diagnosis check_ai
+    scenario manual_confirmation prepare_item
+    scenario candidates check_candidates
+    scenario report_and_pdf check_report_and_pdf
+    scenario consultation_and_reservation check_consultation_and_reservation
+    scenario change_and_stop change_and_perform_work
+    scenario cancellation check_cancellation
+    scenario deletion_and_logout close_and_delete
+}
+
+check_consultation_and_reservation() {
     create_consultation
     issue_quote
     request user PATCH "/quotes/$QUOTE_ID" 200 "$(json --argjson quote "$QUOTE" \
@@ -436,7 +473,26 @@ run_scenarios() {
     request user GET "/work-items/$ITEM_ID/quotes" 200
     assert_json '.data | length == 2' '견적 목록'
     reserve
-    change_and_perform_work
-    check_cancellation
-    close_and_delete
+}
+
+run_plan_scenarios() {
+    scenario public_and_sessions check_public_and_sessions
+    scenario signup check_signup
+    scenario technician_profile prepare_technician
+    scenario optional_paths check_optional_paths
+    scenario route_constraints check_route_constraints
+    scenario completion_and_handover check_completion_and_handover
+    scenario request_and_records edit_request_and_records
+    MAIN_REQUEST_ID=$REQUEST_ID MAIN_ITEM_ID=$ITEM_ID
+    scenario ai_dialogue check_ai_dialogue
+    scenario diagnosis check_ai
+    scenario manual_confirmation prepare_item
+    scenario candidates check_candidates
+    scenario case_matching check_case_matching
+    scenario report_and_pdf check_report_and_pdf
+    scenario consultation_and_reservation check_consultation_and_reservation
+    scenario change_and_stop change_and_perform_work
+    scenario photo_progression check_photo_progression
+    scenario cancellation check_cancellation
+    scenario deletion_and_logout close_and_delete
 }

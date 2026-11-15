@@ -25,6 +25,17 @@ from scripts.e2e.local import diagnosis, find_font
 ROOT = Path(__file__).resolve().parents[1]
 
 
+@pytest.mark.parametrize("arguments", [["--suite", "unknown"], ["--suite"]])
+def test_invalid_suite_fails_before_starting_server(tmp_path, arguments):
+    result = subprocess.run(
+        ["bash", str(ROOT / "scripts/e2e/run.sh"), "--local", *arguments,
+         "--output", str(tmp_path / "results")],
+        capture_output=True, text=True, timeout=10,
+    )
+    assert result.returncode != 0 and "--suite" in result.stderr
+    assert not (tmp_path / "results").exists()
+
+
 def curl_request(arguments, clients, app):
     """이 시나리오에서 사용하는 curl 인자를 HTTP 요청으로 옮긴다."""
     method, headers, fields, files = "GET", {}, {}, []
@@ -103,7 +114,8 @@ def curl_request(arguments, clients, app):
 
 
 @pytest.mark.parametrize("ai_mode", ["success", "expected_failure", "unexpected_failure"])
-def test_bash_scenarios_cover_every_endpoint(environment, tmp_path, ai_mode):
+@pytest.mark.parametrize("suite", ["api", "scenarios"])
+def test_bash_scenarios_cover_every_endpoint(environment, tmp_path, ai_mode, suite):
     if any(shutil.which(command) is None for command in ("bash", "jq", "curl")):
         pytest.skip("Bash E2E 검증에는 bash, jq, curl이 필요합니다.")
     settings, factory, app = environment
@@ -174,11 +186,13 @@ def test_bash_scenarios_cover_every_endpoint(environment, tmp_path, ai_mode):
         "PATH": str(binaries) + os.pathsep + os.environ["PATH"],
         "E2E_RPC_IN": str(incoming), "E2E_RPC_OUT": str(outgoing),
     })
+    # API 성공 검사는 옵션 생략 시 기존 api 모드가 선택되는지도 확인한다.
+    suite_args = [] if (suite, ai_mode) == ("api", "success") else ["--suite", suite]
     try:
         result = subprocess.run(
             ["bash", str(ROOT / "scripts/e2e/run.sh"), "--config", str(fixtures / "config.json"),
-             "--output", str(tmp_path / "results")],
-            cwd=tmp_path, env=child_env, capture_output=True, text=True, timeout=120,
+             *suite_args, "--output", str(tmp_path / "results")],
+            cwd=tmp_path, env=child_env, capture_output=True, text=True, timeout=240,
         )
     finally:
         stopped.set()
@@ -199,13 +213,25 @@ def test_bash_scenarios_cover_every_endpoint(environment, tmp_path, ai_mode):
     assert not (run / "response-headers").exists()
     assert not (run / "request-body.json").exists()
     summary = json.loads((run / "summary.json").read_text())
+    assert summary["suite"] == suite
     if ai_mode == "unexpected_failure":
         assert result.returncode != 0 and not summary["passed"]
         assert "예상 종료 상태 SUCCEEDED, 실제 FAILED" in result.stderr
         assert json.loads(diagnostic)["data"]["error"]["code"] == "AI_NOT_CONFIGURED"
+        assert summary["scenarios"][-1]["passed"] is False
         return
     assert result.returncode == 0, result.stdout[-6000:] + result.stderr + diagnostic
     report = json.loads((run / "coverage.json").read_text())
     assert report["successful"] == report["total"] == len(ENDPOINTS)
     assert report["missing"] == []
     assert summary["passed"] and summary["assertions"] > len(ENDPOINTS)
+    assert summary["ai"]["successPathsVerified"] == (ai_mode == "success")
+    completed = {scenario["name"] for scenario in summary["scenarios"] if scenario["passed"]}
+    plan_flows = {
+        "optional_paths", "route_constraints", "completion_and_handover",
+        "ai_dialogue", "case_matching", "photo_progression",
+    }
+    if suite == "scenarios":
+        assert plan_flows <= completed
+    else:
+        assert completed.isdisjoint(plan_flows)

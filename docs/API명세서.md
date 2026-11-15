@@ -1,10 +1,10 @@
-# 고쳐야집 Backend API Specification (v0.1)
+# 고쳐야집 Backend API Specification (v1.1)
 
 > Base URL: `/v1` (백엔드 내부 경로). Nginx 공개 접두사가 `/fixmyhome/api`이면 외부 Base URL은 `/fixmyhome/api/v1`이다.
 >
-> 인증 방식: 브라우저 쿠키 기반 세션 인증. 사전 발급 테스트 계정으로 로그인하면 서버가 세션을 생성하고 세션 식별자를 쿠키로 발급한다. 이후 요청의 세션 쿠키로 인증하고 활성 역할·관계별 권한을 검사한다.
+> 인증 방식: 브라우저 쿠키 기반 세션 인증. 회원가입 또는 사전 발급한 계정으로 로그인하면 서버가 세션을 생성하고 세션 식별자를 쿠키로 발급한다. 이후 요청의 세션 쿠키로 인증하고 활성 역할·관계별 권한을 검사한다. 회원가입에는 이메일·휴대전화 인증이나 운영자 승인이 필요하지 않다.
 >
-> Last Updated: 2026-11-13
+> Last Updated: 2026-11-15
 
 ---
 
@@ -14,7 +14,7 @@
 
 기능·업무 정책과 처리 흐름은 [FE·BE 분업 작업 명세 v1.4](FE-BE-분업작업.md), [요구사항명세서 v1.7](요구사항명세서(기능들).md)를 기준으로 하며, 이 문서에서 새로 결정하거나 변경하지 않는다. 해당 문서는 API에 필요한 입력·출력 데이터를 확인하는 근거로 참조한다.
 
-`v0.1`은 API 연동 초안이다. 경로·필드명·DTO·Enum·상태 코드·응답 구조는 FE·BE 확인이 필요한 제안이며, 미정인 전송 규격은 해당 항목에 표시한다.
+`v1.1`은 API 연동 초안이다. 경로·필드명·DTO·Enum·상태 코드·응답 구조는 FE·BE 확인이 필요한 제안이며, 미정인 전송 규격은 해당 항목에 표시한다.
 
 - **경로·인증 헤더**: 상대 경로에는 Base URL을 붙인다. 인증이 필요한 요청은 세션 식별자를 `Cookie` 헤더로 전송하며, 쿠키 발급·만료는 `Set-Cookie` 응답 헤더로 전달한다. 쿠키 이름·속성은 미정이다.
 - **JSON 본문**: JSON 요청은 `application/json`이다. 성공 JSON은 `data`로 감싸고 오류는 공통 에러 구조를 루트에 반환한다. `204 No Content`는 응답 본문이 없다.
@@ -72,7 +72,7 @@
 
 ### 확정이 필요한 전송 규격
 
-아래 항목은 구현·배포 전 FE·BE가 결정할 사항이다. 미정 값을 다른 기능의 제한에서 추정하지 않는다. 나머지 경로·필드·공통 페이지 값은 이 문서의 v0.1 연동안을 사용한다.
+아래 항목은 구현·배포 전 FE·BE가 결정할 사항이다. 미정 값을 다른 기능의 제한에서 추정하지 않는다. 나머지 경로·필드·공통 페이지 값은 이 문서의 v1.1 연동안을 사용한다.
 
 | 항목 | 현재 정의 | 결정할 값·관련 위치 |
 | --- | --- | --- |
@@ -89,85 +89,86 @@
 
 | # | 분류 | Method | Endpoint | 인증 | 선행 조건 | 설명 | 업데이트 날짜 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | Authentication | POST | `/auth/login` | ❌ | 사전 발급 계정 | 테스트 계정 로그인 | 2026-11-13 |
-| 2 | Authentication | POST | `/auth/logout` | ✅ | 계정 본인 | 로그아웃 | 2026-11-13 |
-| 3 | Authentication | GET | `/auth/me` | ✅ | 계정 본인 | 현재 계정·역할 조회 | 2026-11-13 |
-| 4 | Authentication | PATCH | `/auth/role` | ✅ | 계정 본인 | 활성 역할 전환 | 2026-11-13 |
-| 5 | Public | GET | `/public/service-info` | ❌ | 없음 | 소개·지원 범위 조회 | 2026-11-13 |
-| 6 | Public | GET | `/public/technicians` | ❌ | 없음 | 공개 기사 연락 목록 | 2026-11-13 |
-| 7 | Public | GET | `/public/technicians/{technicianId}` | ❌ | 없음 | 공개 기사 프로필 조회 | 2026-11-13 |
-| 8 | Public | GET | `/public/guidance` | ❌ | 없음 | 긴급·공식 안내 조회 | 2026-11-13 |
-| 9 | Requests | POST | `/requests` | ✅ | 본인 | 사진·증상 최초 접수 | 2026-11-13 |
-| 10 | Requests | GET | `/requests` | ✅ | 본인 | 본인 요청 목록 | 2026-11-13 |
-| 11 | Requests | GET | `/requests/{requestId}` | ✅ | 본인 | 요청 상세·이력 조회 | 2026-11-13 |
-| 12 | Requests | PATCH | `/requests/{requestId}` | ✅ | 본인 | 공통 증상·지역 정정 | 2026-11-13 |
-| 13 | Requests | PUT | `/requests/{requestId}/visit-details` | ✅ | 본인 | 상세 방문 정보 확인 | 2026-11-13 |
-| 14 | Requests | POST | `/requests/{requestId}/closure` | ✅ | 본인 | 요청 전체 종료 | 2026-11-13 |
-| 15 | Requests | POST | `/requests/{requestId}/work-items` | ✅ | 본인 | 독립 작업 항목 추가 | 2026-11-13 |
-| 16 | Requests | PATCH | `/work-items/{workItemId}` | ✅ | 본인 | 작업 사실·해결 경로 변경 | 2026-11-13 |
-| 17 | Requests | PUT | `/work-items/{workItemId}/confirmation` | ✅ | 본인 | 요약·분야 사용자 확인 | 2026-11-13 |
-| 18 | Requests | GET | `/work-items/{workItemId}/solutions` | ✅ | 본인 | 항목별 해결 안내 | 2026-11-13 |
-| 19 | Requests | POST | `/work-items/{workItemId}/outcomes` | ✅ | 본인 | 자가 조치·외부 해결 결과 기록 | 2026-11-13 |
-| 20 | History | POST | `/requests/{requestId}/photos` | ✅ | 본인 | 추가 사진 업로드 | 2026-11-13 |
-| 21 | History | PUT | `/photos/{photoId}` | ✅ | 본인 | 사진·촬영일·설명 정정 | 2026-11-13 |
-| 22 | History | GET | `/media/{mediaId}` | ✅ | 자료 종류·관계 권한 | 권한 있는 이미지 조회 | 2026-11-13 |
-| 23 | History | POST | `/requests/{requestId}/records` | ✅ | 본인 | 경과·보완 기록 추가 | 2026-11-13 |
-| 24 | History | PATCH | `/records/{recordId}` | ✅ | 본인 | 본인 경과 기록 정정 | 2026-11-13 |
-| 25 | History | GET | `/requests/{requestId}/timeline` | ✅ | 본인 | 날짜별 경과·비교쌍 조회 | 2026-11-13 |
-| 26 | History | PUT | `/requests/{requestId}/photo-groups` | ✅ | 본인 | 동일 부위 묶음·비교쌍 설정 | 2026-11-13 |
-| 27 | AI | POST | `/requests/{requestId}/ai-jobs` | ✅ | 본인 | AI 작업 명시적 실행·재시도 | 2026-11-13 |
-| 28 | AI | GET | `/requests/{requestId}/ai-jobs` | ✅ | 본인 | 요청별 AI 작업·결과 이력 조회 | 2026-11-13 |
-| 29 | AI | GET | `/ai-jobs/{jobId}` | ✅ | 본인 | AI 상태·결과·오류 조회 | 2026-11-13 |
-| 30 | AI | PUT | `/requests/{requestId}/ai-dialogue` | ✅ | 본인 | 답변·건너뛰기·문답 종료 | 2026-11-13 |
-| 31 | Technicians | GET | `/technicians/me` | ✅ | 기사 본인 | 본인 기사 자원 조회 | 2026-11-13 |
-| 32 | Technicians | PUT | `/technicians/me/profile` | ✅ | 기사 본인 | 프로필 등록·수정 | 2026-11-13 |
-| 33 | Technicians | POST | `/technicians/me/portfolio-photos` | ✅ | 기사 본인 | 본인 포트폴리오 사진 업로드 | 2026-11-13 |
-| 34 | Technicians | GET | `/technicians/{technicianId}/portfolio` | ✅ | 로그인; 공개 검증 자료 | 포트폴리오·사례 목록 조회 | 2026-11-13 |
-| 35 | Technicians | POST | `/technicians/me/cases` | ✅ | 기사 본인 | 준비된 시공 사례 등록 | 2026-11-13 |
-| 36 | Technicians | PATCH | `/technicians/me/cases/{caseId}` | ✅ | 기사 본인 | 본인 사례 정정 | 2026-11-13 |
-| 37 | Technicians | GET | `/cases/{caseId}` | ✅ | 로그인; 공개 검증 자료 | 사례 상세 조회 | 2026-11-13 |
-| 38 | Technicians | GET | `/technicians/me/schedule` | ✅ | 기사 본인 | 본인 일정표 조회 | 2026-11-13 |
-| 39 | Technicians | PUT | `/technicians/me/schedule` | ✅ | 기사 본인 | 가능 시간·외부 일정 변경 | 2026-11-13 |
-| 40 | Matching | GET | `/work-items/{workItemId}/case-recommendations` | ✅ | 본인 | 사례 기반 기사 추천 조회 | 2026-11-13 |
-| 41 | Matching | GET | `/work-items/{workItemId}/general-candidates` | ✅ | 본인 | 일반 기사 후보 조회 | 2026-11-13 |
-| 42 | Matching | PUT | `/work-items/{workItemId}/route-exploration` | ✅ | 본인 | 동선 탐색 공개·중단 | 2026-11-13 |
-| 43 | Matching | GET | `/technicians/me/route-candidates` | ✅ | 기사 본인 | 기사 동선 추천 작업 조회 | 2026-11-13 |
-| 44 | Matching | POST | `/route-candidates/{candidateId}/interests` | ✅ | 기사 본인; 탐색 공개 중 | 상담 참여 의사 표시 | 2026-11-13 |
-| 45 | Matching | GET | `/work-items/{workItemId}/interests` | ✅ | 본인 | 참여 기사 조회 | 2026-11-13 |
-| 46 | Consultations | POST | `/work-items/{workItemId}/consultations` | ✅ | 소유자; 지역·방문 조건·요약 확인 | 기사 선택·상담 요청 | 2026-11-13 |
-| 47 | Consultations | GET | `/consultations` | ✅ | 현재 역할의 당사자 | 참여 상담 목록 | 2026-11-13 |
-| 48 | Consultations | GET | `/consultations/{consultationId}` | ✅ | 관계 당사자 | 상담 상세·전달 이력 조회 | 2026-11-13 |
-| 49 | Consultations | PATCH | `/consultations/{consultationId}` | ✅ | 관계 당사자; 액션별 권한 | 상담 수락·거절·종료·해제 | 2026-11-13 |
-| 50 | Consultations | POST | `/consultations/{consultationId}/quotes` | ✅ | 수락된 활성 상담의 기사 | 견적 신규 발행·수정본 발행 | 2026-11-13 |
-| 51 | Consultations | PATCH | `/quotes/{quoteId}` | ✅ | 발행 기사 또는 요청 소유자 | 견적 철회·거절 | 2026-11-13 |
-| 52 | Consultations | GET | `/work-items/{workItemId}/quotes` | ✅ | 본인 | 항목별 견적 비교 | 2026-11-13 |
-| 53 | Reservations | POST | `/reservation-checks` | ✅ | 소유자 또는 관련 기사 | 예약·변경·시작 조건 사전 검사 | 2026-11-13 |
-| 54 | Reservations | PUT | `/reservation-checks/{checkId}/confirmation` | ✅ | 해당 요청 소유자 | 다른 기사 방문 중복 확인 | 2026-11-13 |
-| 55 | Reservations | POST | `/work-items/{workItemId}/reservations` | ✅ | 소유자; 최신 견적·방문 정보 확인 | 견적 선택·예약 확정 | 2026-11-13 |
-| 56 | Reservations | GET | `/reservations` | ✅ | 현재 역할의 당사자 | 당사자 예약 목록 | 2026-11-13 |
-| 57 | Reservations | GET | `/reservations/{reservationId}` | ✅ | 예약 당사자 | 예약·작업·인계 상세 | 2026-11-13 |
-| 58 | Reservations | POST | `/reservations/{reservationId}/cancellation` | ✅ | 예약 당사자; 실제 시작 전 | 시작 전 예약 취소 | 2026-11-13 |
-| 59 | Reservations | POST | `/reservations/{reservationId}/changes` | ✅ | 예약 당사자 | 시작 전·진행 중 변경안 제안 | 2026-11-13 |
-| 60 | Reservations | PATCH | `/reservation-changes/{changeId}` | ✅ | 예약 당사자; 동일 변경 버전 | 변경안 수락·거절·철회 | 2026-11-13 |
-| 61 | Work | PUT | `/reservations/{reservationId}/early-start-consent` | ✅ | 요청 소유자; 시작 전 | 조기 시작 동의·철회 | 2026-11-13 |
-| 62 | Work | POST | `/reservations/{reservationId}/work-events` | ✅ | 액션별 사용자 또는 담당 기사 | 시작·중단 요청·중단·완료·종료 예상 갱신 | 2026-11-13 |
-| 63 | Work | PUT | `/reservations/{reservationId}/end-location` | ✅ | 해당 완료·중단 예약 담당 기사 | 종료 위치 보완·정정 | 2026-11-13 |
-| 64 | Work | PUT | `/reservations/{reservationId}/preparation-notes` | ✅ | 해당 활성 예약 담당 기사 | 방문 준비사항 등록·수정 | 2026-11-13 |
-| 65 | Handover | POST | `/work-items/{workItemId}/deliveries` | ✅ | 본인 | 가림·공개 범위 전달본 준비 | 2026-11-13 |
-| 66 | Handover | GET | `/work-items/{workItemId}/deliveries` | ✅ | 본인 | 전달본·준비본 목록 복구 | 2026-11-13 |
-| 67 | Handover | GET | `/deliveries/{deliveryId}` | ✅ | 소유자 또는 허용 수신자 | 전달본 처리 상태·미리보기·열람 | 2026-11-13 |
-| 68 | Handover | PUT | `/deliveries/{deliveryId}/confirmation` | ✅ | 본인 | 처리 결과·공개 범위 확인 | 2026-11-13 |
-| 69 | Handover | PUT | `/work-items/{workItemId}/report` | ✅ | 본인 | 보고서 직접 작성·수정 초안 | 2026-11-13 |
-| 70 | Handover | GET | `/work-items/{workItemId}/report` | ✅ | 본인 | 본인 보고서·초안 조회 | 2026-11-13 |
-| 71 | Handover | PUT | `/work-items/{workItemId}/report/confirmation` | ✅ | 본인 | 최신 보고서 본문 확인 | 2026-11-13 |
-| 72 | Handover | POST | `/deliveries/{deliveryId}/pdf-jobs` | ✅ | 본인 | 사진 포함 PDF 생성 | 2026-11-13 |
-| 73 | Handover | GET | `/deliveries/{deliveryId}/pdf-jobs` | ✅ | 본인 | PDF 작업 목록 복구 | 2026-11-13 |
-| 74 | Handover | GET | `/pdf-jobs/{jobId}` | ✅ | 본인 | PDF 생성 상태 조회 | 2026-11-13 |
-| 75 | Handover | GET | `/pdf-jobs/{jobId}/content` | ✅ | 본인 | 확인된 PDF 다운로드 | 2026-11-13 |
-| 76 | Deletion | POST | `/deletion-jobs` | ✅ | 본인 | 사진·일반 기록·요청 전체 삭제 | 2026-11-13 |
-| 77 | Deletion | GET | `/deletion-jobs` | ✅ | 본인 | 삭제 작업 목록·재시도 대상 복구 | 2026-11-13 |
-| 78 | Deletion | GET | `/deletion-jobs/{jobId}` | ✅ | 본인 | 삭제 처리 상태 조회 | 2026-11-13 |
-| 79 | Deletion | POST | `/deletion-jobs/{jobId}/retry` | ✅ | 본인 | 삭제 미완료 정리 재시도 | 2026-11-13 |
+| 1 | Authentication | POST | `/auth/signup` | ❌ | 사용하지 않은 로그인 ID | 일반 사용자 회원가입 | 2026-11-15 |
+| 2 | Authentication | POST | `/auth/login` | ❌ | 가입 또는 사전 발급한 계정 | 계정 로그인 | 2026-11-15 |
+| 3 | Authentication | POST | `/auth/logout` | ✅ | 계정 본인 | 로그아웃 | 2026-11-13 |
+| 4 | Authentication | GET | `/auth/me` | ✅ | 계정 본인 | 현재 계정·역할 조회 | 2026-11-13 |
+| 5 | Authentication | PATCH | `/auth/role` | ✅ | 계정 본인 | 활성 역할 전환 | 2026-11-13 |
+| 6 | Public | GET | `/public/service-info` | ❌ | 없음 | 소개·지원 범위 조회 | 2026-11-13 |
+| 7 | Public | GET | `/public/technicians` | ❌ | 없음 | 공개 기사 연락 목록 | 2026-11-13 |
+| 8 | Public | GET | `/public/technicians/{technicianId}` | ❌ | 없음 | 공개 기사 프로필 조회 | 2026-11-13 |
+| 9 | Public | GET | `/public/guidance` | ❌ | 없음 | 긴급·공식 안내 조회 | 2026-11-13 |
+| 10 | Requests | POST | `/requests` | ✅ | 본인 | 사진·증상 최초 접수 | 2026-11-13 |
+| 11 | Requests | GET | `/requests` | ✅ | 본인 | 본인 요청 목록 | 2026-11-13 |
+| 12 | Requests | GET | `/requests/{requestId}` | ✅ | 본인 | 요청 상세·이력 조회 | 2026-11-13 |
+| 13 | Requests | PATCH | `/requests/{requestId}` | ✅ | 본인 | 공통 증상·지역 정정 | 2026-11-13 |
+| 14 | Requests | PUT | `/requests/{requestId}/visit-details` | ✅ | 본인 | 상세 방문 정보 확인 | 2026-11-13 |
+| 15 | Requests | POST | `/requests/{requestId}/closure` | ✅ | 본인 | 요청 전체 종료 | 2026-11-13 |
+| 16 | Requests | POST | `/requests/{requestId}/work-items` | ✅ | 본인 | 독립 작업 항목 추가 | 2026-11-13 |
+| 17 | Requests | PATCH | `/work-items/{workItemId}` | ✅ | 본인 | 작업 사실·해결 경로 변경 | 2026-11-13 |
+| 18 | Requests | PUT | `/work-items/{workItemId}/confirmation` | ✅ | 본인 | 요약·분야 사용자 확인 | 2026-11-13 |
+| 19 | Requests | GET | `/work-items/{workItemId}/solutions` | ✅ | 본인 | 항목별 해결 안내 | 2026-11-13 |
+| 20 | Requests | POST | `/work-items/{workItemId}/outcomes` | ✅ | 본인 | 자가 조치·외부 해결 결과 기록 | 2026-11-13 |
+| 21 | History | POST | `/requests/{requestId}/photos` | ✅ | 본인 | 추가 사진 업로드 | 2026-11-13 |
+| 22 | History | PUT | `/photos/{photoId}` | ✅ | 본인 | 사진·촬영일·설명 정정 | 2026-11-13 |
+| 23 | History | GET | `/media/{mediaId}` | ✅ | 자료 종류·관계 권한 | 권한 있는 이미지 조회 | 2026-11-13 |
+| 24 | History | POST | `/requests/{requestId}/records` | ✅ | 본인 | 경과·보완 기록 추가 | 2026-11-13 |
+| 25 | History | PATCH | `/records/{recordId}` | ✅ | 본인 | 본인 경과 기록 정정 | 2026-11-13 |
+| 26 | History | GET | `/requests/{requestId}/timeline` | ✅ | 본인 | 날짜별 경과·비교쌍 조회 | 2026-11-13 |
+| 27 | History | PUT | `/requests/{requestId}/photo-groups` | ✅ | 본인 | 동일 부위 묶음·비교쌍 설정 | 2026-11-13 |
+| 28 | AI | POST | `/requests/{requestId}/ai-jobs` | ✅ | 본인 | AI 작업 명시적 실행·재시도 | 2026-11-13 |
+| 29 | AI | GET | `/requests/{requestId}/ai-jobs` | ✅ | 본인 | 요청별 AI 작업·결과 이력 조회 | 2026-11-13 |
+| 30 | AI | GET | `/ai-jobs/{jobId}` | ✅ | 본인 | AI 상태·결과·오류 조회 | 2026-11-13 |
+| 31 | AI | PUT | `/requests/{requestId}/ai-dialogue` | ✅ | 본인 | 답변·건너뛰기·문답 종료 | 2026-11-13 |
+| 32 | Technicians | GET | `/technicians/me` | ✅ | 기사 본인 | 본인 기사 자원 조회 | 2026-11-13 |
+| 33 | Technicians | PUT | `/technicians/me/profile` | ✅ | 기사 본인 | 프로필 등록·수정 | 2026-11-13 |
+| 34 | Technicians | POST | `/technicians/me/portfolio-photos` | ✅ | 기사 본인 | 본인 포트폴리오 사진 업로드 | 2026-11-13 |
+| 35 | Technicians | GET | `/technicians/{technicianId}/portfolio` | ✅ | 로그인; 공개 검증 자료 | 포트폴리오·사례 목록 조회 | 2026-11-13 |
+| 36 | Technicians | POST | `/technicians/me/cases` | ✅ | 기사 본인 | 준비된 시공 사례 등록 | 2026-11-13 |
+| 37 | Technicians | PATCH | `/technicians/me/cases/{caseId}` | ✅ | 기사 본인 | 본인 사례 정정 | 2026-11-13 |
+| 38 | Technicians | GET | `/cases/{caseId}` | ✅ | 로그인; 공개 검증 자료 | 사례 상세 조회 | 2026-11-13 |
+| 39 | Technicians | GET | `/technicians/me/schedule` | ✅ | 기사 본인 | 본인 일정표 조회 | 2026-11-13 |
+| 40 | Technicians | PUT | `/technicians/me/schedule` | ✅ | 기사 본인 | 가능 시간·외부 일정 변경 | 2026-11-13 |
+| 41 | Matching | GET | `/work-items/{workItemId}/case-recommendations` | ✅ | 본인 | 사례 기반 기사 추천 조회 | 2026-11-13 |
+| 42 | Matching | GET | `/work-items/{workItemId}/general-candidates` | ✅ | 본인 | 일반 기사 후보 조회 | 2026-11-13 |
+| 43 | Matching | PUT | `/work-items/{workItemId}/route-exploration` | ✅ | 본인 | 동선 탐색 공개·중단 | 2026-11-13 |
+| 44 | Matching | GET | `/technicians/me/route-candidates` | ✅ | 기사 본인 | 기사 동선 추천 작업 조회 | 2026-11-13 |
+| 45 | Matching | POST | `/route-candidates/{candidateId}/interests` | ✅ | 기사 본인; 탐색 공개 중 | 상담 참여 의사 표시 | 2026-11-13 |
+| 46 | Matching | GET | `/work-items/{workItemId}/interests` | ✅ | 본인 | 참여 기사 조회 | 2026-11-13 |
+| 47 | Consultations | POST | `/work-items/{workItemId}/consultations` | ✅ | 소유자; 지역·방문 조건·요약 확인 | 기사 선택·상담 요청 | 2026-11-13 |
+| 48 | Consultations | GET | `/consultations` | ✅ | 현재 역할의 당사자 | 참여 상담 목록 | 2026-11-13 |
+| 49 | Consultations | GET | `/consultations/{consultationId}` | ✅ | 관계 당사자 | 상담 상세·전달 이력 조회 | 2026-11-13 |
+| 50 | Consultations | PATCH | `/consultations/{consultationId}` | ✅ | 관계 당사자; 액션별 권한 | 상담 수락·거절·종료·해제 | 2026-11-13 |
+| 51 | Consultations | POST | `/consultations/{consultationId}/quotes` | ✅ | 수락된 활성 상담의 기사 | 견적 신규 발행·수정본 발행 | 2026-11-13 |
+| 52 | Consultations | PATCH | `/quotes/{quoteId}` | ✅ | 발행 기사 또는 요청 소유자 | 견적 철회·거절 | 2026-11-13 |
+| 53 | Consultations | GET | `/work-items/{workItemId}/quotes` | ✅ | 본인 | 항목별 견적 비교 | 2026-11-13 |
+| 54 | Reservations | POST | `/reservation-checks` | ✅ | 소유자 또는 관련 기사 | 예약·변경·시작 조건 사전 검사 | 2026-11-13 |
+| 55 | Reservations | PUT | `/reservation-checks/{checkId}/confirmation` | ✅ | 해당 요청 소유자 | 다른 기사 방문 중복 확인 | 2026-11-13 |
+| 56 | Reservations | POST | `/work-items/{workItemId}/reservations` | ✅ | 소유자; 최신 견적·방문 정보 확인 | 견적 선택·예약 확정 | 2026-11-13 |
+| 57 | Reservations | GET | `/reservations` | ✅ | 현재 역할의 당사자 | 당사자 예약 목록 | 2026-11-13 |
+| 58 | Reservations | GET | `/reservations/{reservationId}` | ✅ | 예약 당사자 | 예약·작업·인계 상세 | 2026-11-13 |
+| 59 | Reservations | POST | `/reservations/{reservationId}/cancellation` | ✅ | 예약 당사자; 실제 시작 전 | 시작 전 예약 취소 | 2026-11-13 |
+| 60 | Reservations | POST | `/reservations/{reservationId}/changes` | ✅ | 예약 당사자 | 시작 전·진행 중 변경안 제안 | 2026-11-13 |
+| 61 | Reservations | PATCH | `/reservation-changes/{changeId}` | ✅ | 예약 당사자; 동일 변경 버전 | 변경안 수락·거절·철회 | 2026-11-13 |
+| 62 | Work | PUT | `/reservations/{reservationId}/early-start-consent` | ✅ | 요청 소유자; 시작 전 | 조기 시작 동의·철회 | 2026-11-13 |
+| 63 | Work | POST | `/reservations/{reservationId}/work-events` | ✅ | 액션별 사용자 또는 담당 기사 | 시작·중단 요청·중단·완료·종료 예상 갱신 | 2026-11-13 |
+| 64 | Work | PUT | `/reservations/{reservationId}/end-location` | ✅ | 해당 완료·중단 예약 담당 기사 | 종료 위치 보완·정정 | 2026-11-13 |
+| 65 | Work | PUT | `/reservations/{reservationId}/preparation-notes` | ✅ | 해당 활성 예약 담당 기사 | 방문 준비사항 등록·수정 | 2026-11-13 |
+| 66 | Handover | POST | `/work-items/{workItemId}/deliveries` | ✅ | 본인 | 가림·공개 범위 전달본 준비 | 2026-11-13 |
+| 67 | Handover | GET | `/work-items/{workItemId}/deliveries` | ✅ | 본인 | 전달본·준비본 목록 복구 | 2026-11-13 |
+| 68 | Handover | GET | `/deliveries/{deliveryId}` | ✅ | 소유자 또는 허용 수신자 | 전달본 처리 상태·미리보기·열람 | 2026-11-13 |
+| 69 | Handover | PUT | `/deliveries/{deliveryId}/confirmation` | ✅ | 본인 | 처리 결과·공개 범위 확인 | 2026-11-13 |
+| 70 | Handover | PUT | `/work-items/{workItemId}/report` | ✅ | 본인 | 보고서 직접 작성·수정 초안 | 2026-11-13 |
+| 71 | Handover | GET | `/work-items/{workItemId}/report` | ✅ | 본인 | 본인 보고서·초안 조회 | 2026-11-13 |
+| 72 | Handover | PUT | `/work-items/{workItemId}/report/confirmation` | ✅ | 본인 | 최신 보고서 본문 확인 | 2026-11-13 |
+| 73 | Handover | POST | `/deliveries/{deliveryId}/pdf-jobs` | ✅ | 본인 | 사진 포함 PDF 생성 | 2026-11-13 |
+| 74 | Handover | GET | `/deliveries/{deliveryId}/pdf-jobs` | ✅ | 본인 | PDF 작업 목록 복구 | 2026-11-13 |
+| 75 | Handover | GET | `/pdf-jobs/{jobId}` | ✅ | 본인 | PDF 생성 상태 조회 | 2026-11-13 |
+| 76 | Handover | GET | `/pdf-jobs/{jobId}/content` | ✅ | 본인 | 확인된 PDF 다운로드 | 2026-11-13 |
+| 77 | Deletion | POST | `/deletion-jobs` | ✅ | 본인 | 사진·일반 기록·요청 전체 삭제 | 2026-11-13 |
+| 78 | Deletion | GET | `/deletion-jobs` | ✅ | 본인 | 삭제 작업 목록·재시도 대상 복구 | 2026-11-13 |
+| 79 | Deletion | GET | `/deletion-jobs/{jobId}` | ✅ | 본인 | 삭제 처리 상태 조회 | 2026-11-13 |
+| 80 | Deletion | POST | `/deletion-jobs/{jobId}/retry` | ✅ | 본인 | 삭제 미완료 정리 재시도 | 2026-11-13 |
 
 범례: `✅` 세션 쿠키 인증 필요, `❌` 인증 불필요. `계정 본인`은 활성 역할·요청 소유와 무관한 본인 계정이고, `본인`은 사용자 역할로 자신의 요청·자료를 다루는 조건이다. 기사·관계 당사자는 별도 표기한다. 인증이 필요한 API에는 공통 `401`·`403`, 식별자 조회에는 `404`, 멱등 키 필수 API에는 관련 `400`·`409`가 적용된다.
 
@@ -177,11 +178,11 @@
 
 > 정책 참조: `W01` · `FR-ACT-01~03` · [요구사항 §4.15](요구사항명세서(기능들).md#415-테스트-계정과-역할-권한) · [FE·BE 작업 명세](FE-BE-분업작업.md)
 
-### POST `/auth/login` — 테스트 계정 로그인
+### POST `/auth/signup` — 일반 사용자 회원가입
 
 - **인증 요구사항**: ❌
-- **선행 조건**: 사전 발급 계정
-- **설명**: 발급 계정으로 로그인하고 세션 쿠키와 계정·역할 정보를 반환한다.
+- **선행 조건**: 사용하지 않은 로그인 ID
+- **설명**: 로그인 ID와 비밀번호로 일반 사용자 계정을 생성한다. 이메일·휴대전화 인증이나 운영자 승인 절차는 없다. 계정에는 `USER` 역할만 부여하며 역할 입력은 허용하지 않는다. 가입 후 `POST /auth/login`으로 로그인한다. 가입 자체로 세션 쿠키를 발급하거나 기존 로그인 세션을 변경하지 않는다.
 
 **Headers**
 
@@ -193,8 +194,44 @@
 
 | 필드 | 타입 | 필수 | Validation | 설명 |
 | --- | --- | --- | --- | --- |
-| `loginId` | string | ✅ | 발급 계정 | 로그인 식별값 |
-| `password` | string | ✅ | 발급 자격증명 | 로그·응답에 포함하지 않음 |
+| `loginId` | string | ✅ | 1~128자; 앞뒤 공백 불가; 대소문자를 구분하여 중복 검사 | 로그인 식별값; 공백만 입력할 수 없음 |
+| `password` | string | ✅ | 기존 계정 정책과 동일하게 12자 이상 | 해시로 저장하며 로그·응답에 포함하지 않음 |
+
+**Response 201 Created**
+
+| 필드 | 타입 | 설명 |
+| --- | --- | --- |
+| `data` | SignupDTO | 생성된 계정 정보; 세션 정보와 비밀번호는 포함하지 않음 |
+
+**처리 규칙**
+
+`Idempotency-Key`는 필요하지 않다. 동일 ID로 다시 요청하면 비밀번호 일치 여부와 관계없이 `409 ACCOUNT_EXISTS`를 반환한다. 동시 가입 요청에서도 같은 ID의 계정은 하나만 생성된다.
+
+**예외 응답**
+
+- **409 Conflict**: 이미 사용 중인 로그인 ID (`ACCOUNT_EXISTS`)
+- **422 Unprocessable Content**: 필수 필드 누락, ID 형식·길이 또는 비밀번호 길이 위반, 정의되지 않은 필드 입력 (`VALIDATION_ERROR`)
+
+---
+
+### POST `/auth/login` — 계정 로그인
+
+- **인증 요구사항**: ❌
+- **선행 조건**: 가입 또는 사전 발급한 계정
+- **설명**: 계정으로 로그인하고 세션 쿠키와 계정·역할 정보를 반환한다.
+
+**Headers**
+
+| 헤더 | 값 | 필수 |
+| --- | --- | --- |
+| `Content-Type` | `application/json` | ✅ |
+
+**Request Body (`application/json`)**
+
+| 필드 | 타입 | 필수 | Validation | 설명 |
+| --- | --- | --- | --- | --- |
+| `loginId` | string | ✅ | 가입 또는 사전 발급한 계정 | 로그인 식별값 |
+| `password` | string | ✅ | 해당 계정의 비밀번호 | 로그·응답에 포함하지 않음 |
 
 **Response Headers**
 
@@ -210,7 +247,7 @@
 
 **예외 응답**
 
-- **401 Unauthorized**: 테스트 계정 인증 실패 (`INVALID_CREDENTIALS`)
+- **401 Unauthorized**: 계정 인증 실패 (`INVALID_CREDENTIALS`)
 
 ---
 
@@ -2970,11 +3007,12 @@
 | 400 Bad Request | `IDEMPOTENCY_KEY_REQUIRED` | 필수 `Idempotency-Key` 요청 헤더 누락 |
 | 400 Bad Request | `INVALID_IDEMPOTENCY_KEY` | 키가 빈 값이거나 큰따옴표로 감싼 ASCII 문자열 하나가 아님 |
 | 401 Unauthorized | `AUTHENTICATION_REQUIRED` | 세션 쿠키 없음 또는 유효하지 않은·만료된·로그아웃된 세션 |
-| 401 Unauthorized | `INVALID_CREDENTIALS` | 테스트 계정 인증 실패 |
+| 401 Unauthorized | `INVALID_CREDENTIALS` | 계정 인증 실패 |
 | 403 Forbidden | `ACCESS_DENIED` | 소유·관계·자료 범위 권한 없음; 비공개 최신 상태는 제공하지 않음 |
 | 403 Forbidden | `ROLE_FORBIDDEN` | 허용되지 않은 역할 또는 액션 |
 | 403 Forbidden | `SELF_PARTICIPATION_FORBIDDEN` | 자기 계정 요청의 기사 참여 시도 |
 | 404 Not Found | `RESOURCE_NOT_FOUND` | 대상 없음·삭제됨; 권한 밖 존재 여부 노출도 차단 |
+| 409 Conflict | `ACCOUNT_EXISTS` | 회원가입 ID가 이미 사용 중임; 다른 ID로 다시 요청 |
 | 409 Conflict | `IDEMPOTENCY_KEY_REUSED` | 같은 계정·Method·실제 경로·키로 다른 요청 내용 전송; `retryable=false` |
 | 409 Conflict | `IDEMPOTENCY_IN_PROGRESS` | 같은 키의 최초 접수·상태 반영 처리 중; `retryable=true`이며 같은 키·내용으로 재전송 |
 | 409 Conflict | `VERSION_CONFLICT` | 조회한 리소스·전제·합의 버전과 현재 값이 다름 |
@@ -3045,6 +3083,16 @@ AI 처리 오류 코드는 `AI_TIMEOUT`, `AI_PROVIDER_ERROR`, `AI_OUTPUT_INVALID
 | --- | --- | --- |
 | `items` | T[] | 빈 배열은 현재 조건의 결과 없음; 오류·평가 미완료와 구분 |
 | `nextCursor` | string? | 다음 페이지 식별자; 마지막이면 `null` |
+
+### SignupDTO
+
+회원가입으로 생성한 일반 사용자 계정 정보이다. 비밀번호·해시·세션 식별자는 반환하지 않는다.
+
+| 필드 | 타입 | 설명 |
+| --- | --- | --- |
+| `accountId` | string | 생성된 계정 ID |
+| `loginId` | string | 가입한 로그인 ID |
+| `availableRoles` | Role[] | 회원가입에서는 `USER` 하나만 반환 |
 
 ### SessionDTO
 

@@ -1,8 +1,8 @@
 # 고쳐야집 Backend
 
-FastAPI · SQLAlchemy · PostgreSQL · Alembic 기반 API와 DB 작업 큐입니다. 요구사항 v1.7, FE·BE 분업 v1.4, API v0.1의 79개 메서드·경로를 내부 `/v1`에 연결했습니다. API 문서는 `/docs`, OpenAPI JSON은 `/openapi.json`입니다. 공개 접두사 `/fixmyhome/api`는 호스트 Nginx에서 지정합니다.
+FastAPI · SQLAlchemy · PostgreSQL · Alembic 기반 API와 DB 작업 큐입니다. 요구사항 v1.7, FE·BE 분업 v1.4, API v1.1의 80개 메서드·경로를 내부 `/v1`에 연결했습니다. API 문서는 `/docs`, OpenAPI JSON은 `/openapi.json`입니다. 공개 접두사 `/fixmyhome/api`는 호스트 Nginx에서 지정합니다.
 
-실제 서비스 자료와 검증 자료는 저장소에 포함하지 않습니다. 빈 DB에서도 로그인 계정 발급과 사진·증상 접수는 가능하며, 기사 예약에는 운영자가 검증한 지역·일정·이동 자료가 필요합니다. AI는 선택 기능이고 키·모델이 없으면 해당 작업만 실패합니다.
+실제 서비스 자료와 검증 자료는 저장소에 포함하지 않습니다. 빈 DB에서도 회원가입·로그인과 사진·증상 접수는 가능하며, 기사 예약에는 운영자가 검증한 지역·일정·이동 자료가 필요합니다. AI는 선택 기능이고 키·모델이 없으면 해당 작업만 실패합니다.
 
 ## 개발 환경
 
@@ -41,9 +41,9 @@ FMH_ROOT_PATH=/fixmyhome/api
 
 앱 코드와 배포 Compose를 반영한 새 이미지를 빌드·푸시한 뒤 새 버전으로 배포해야 합니다. 기존 이미지에는 환경변수만 추가해도 이 변경이 적용되지 않습니다. [Nginx 예시](deploy/nginx.conf.example)의 경로 전달 방식도 함께 맞춥니다. 접두사가 없는 배포에서는 `FMH_ROOT_PATH`를 비우고, 로컬 Compose는 항상 빈 값으로 덮어씁니다.
 
-79개 API를 12개 업무 분류로 묶고 검색 필터를 제공합니다. 각 API에는 용도·권한·선행 조건, 종류별 처리 조건, 요청 필드와 DTO, Enum의 의미, 성공 응답·파일 형식, 상태 코드별 오류 설명이 표시됩니다. `Idempotency-Key`의 큰따옴표 포함 예시와 multipart `metadata`의 JSON 문자열 예시도 확인할 수 있습니다.
+80개 API를 12개 업무 분류로 묶고 검색 필터를 제공합니다. 각 API에는 용도·권한·선행 조건, 종류별 처리 조건, 요청 필드와 DTO, Enum의 의미, 성공 응답·파일 형식, 상태 코드별 오류 설명이 표시됩니다. `Idempotency-Key`의 큰따옴표 포함 예시와 multipart `metadata`의 JSON 문자열 예시도 확인할 수 있습니다.
 
-사전 발급 계정으로 `POST /v1/auth/login`의 **Try it out**을 먼저 실행합니다. 공개 접두사는 Swagger의 서버 URL에서 자동 적용합니다. 브라우저가 받은 HttpOnly 쿠키로 이후 요청을 인증하므로 Authorize에 쿠키를 직접 입력하지 않습니다. 기사 API를 호출하려면 `PATCH /v1/auth/role`로 허용된 기사 역할로 전환합니다. Swagger UI의 접속 출처와 `FMH_PUBLIC_ORIGIN`을 일치시키고 운영에서는 HTTPS를 사용합니다. 로컬 Compose의 허용 출처는 `http://localhost:8000`으로 지정되어 있습니다.
+계정이 없으면 `POST /v1/auth/signup`으로 회원가입한 뒤 `POST /v1/auth/login`의 **Try it out**을 실행합니다. 공개 접두사는 Swagger의 서버 URL에서 자동 적용합니다. 브라우저가 받은 HttpOnly 쿠키로 이후 요청을 인증하므로 Authorize에 쿠키를 직접 입력하지 않습니다. 기사 API를 호출하려면 기사 권한이 있는 계정으로 로그인하고 `PATCH /v1/auth/role`로 전환합니다. Swagger UI의 접속 출처와 `FMH_PUBLIC_ORIGIN`을 일치시키고 운영에서는 HTTPS를 사용합니다. 로컬 Compose의 허용 출처는 `http://localhost:8000`으로 지정되어 있습니다.
 
 전송 계약과 엔드포인트 설명의 원문은 [API 명세서](docs/API명세서.md)입니다. 원문 수정 후 다음 명령으로 `app/contract_data.py`를 갱신합니다. 생성한 상수는 이미지에서 바이트코드로 제공되므로 실행 서버에 Markdown 원본이 필요하지 않습니다. Swagger 공통 사용 안내·표시 옵션은 `app/openapi.py`에서 관리합니다.
 
@@ -143,7 +143,18 @@ PostgreSQL 정상 기동 → migration 성공 → API·worker 순서로 시작�
 
 ## 운영 자료와 계정
 
-기본 비밀번호가 설정된 운영 계정을 자동 생성하지 않습니다. 배포된 컨테이너에서 다음과 같이 발급합니다.
+일반 사용자는 별도 이메일·휴대전화 인증 없이 `POST /v1/auth/signup`으로 가입합니다.
+
+```json
+{
+  "loginId": "member01",
+  "password": "example-password"
+}
+```
+
+로그인 ID는 앞뒤 공백 없는 1~128자, 비밀번호는 기존 계정 정책에 따라 12자 이상입니다. ID가 중복되면 `409 ACCOUNT_EXISTS`, 가입에 성공하면 계정 ID·로그인 ID·`availableRoles: ["USER"]`를 `201`로 반환합니다. 가입 시 로그인 쿠키는 발급하지 않으므로 같은 정보로 `POST /v1/auth/login`을 호출합니다. 회원가입 요청에는 역할을 지정하지 않습니다.
+
+기본 비밀번호가 설정된 운영 계정을 자동 생성하지 않습니다. 기사 권한이 필요한 계정은 배포된 컨테이너에서 다음과 같이 발급합니다.
 
 ```bash
 docker compose -f docker-compose-deployment.yaml exec be uv run --no-project --no-sync --python /usr/local/bin/python python -m app.admin create-account technician-one --roles USER TECHNICIAN
@@ -179,7 +190,7 @@ HTTP 접근 로그에는 메서드, URI 경로, 상태 코드, 신뢰한 Nginx �
 
 ## 검증 범위
 
-프론트엔드 관점에서 전체 79개 업무 API를 순서대로 호출하는 Bash E2E는 `bash scripts/e2e/run.sh --local`로 실행합니다. 쿠키 세션·역할·권한·멱등성·예약·비동기 작업·PDF·삭제를 검증하며, 준비된 테스트 서버에는 `--config`로 연결할 수 있습니다. 사전 준비와 실행 결과 형식은 [API E2E 안내](scripts/e2e/README.md)를 참고하세요.
+프론트엔드 관점의 Bash E2E는 `bash scripts/e2e/run.sh --local --suite api`로 회원가입을 포함한 전체 80개 업무 API를 검사합니다(`api`가 기본값). `--suite scenarios`를 선택하면 기획서의 직접 연락·선택 경로·AI·경과 분석·예약 후 인계·정상 완료까지 추가 검증합니다. 준비된 테스트 서버에는 `--config`로 연결할 수 있습니다. 사전 준비와 실행 결과 형식은 [API E2E 안내](scripts/e2e/README.md)를 참고하세요.
 
 테스트는 계약 경로, 권한, 업로드 원자성, 재전송, 비AI 예약 흐름, 작업 상태, 버전 경합, 삭제, AI 실패·deadline, 마스킹·PDF, 스키마 차이와 배포 스크립트를 다룹니다. CI에는 PostgreSQL 테스트와 QEMU 없는 ARM 이미지 빌드를 추가했습니다.
 

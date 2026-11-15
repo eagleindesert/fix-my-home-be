@@ -8,24 +8,11 @@ from pathlib import Path
 from sqlalchemy import select
 
 from app.config import get_settings
-from app.db import Account, ReferenceData, Resource, lock, session_factory, uid
+from app.db import Account, ReferenceData, Resource, lock, session_factory
 from app.errors import require
-from app.security import Actor, hash_password
+from app.security import Actor
+from app.services.accounts import create_account
 from app.services.context import Context
-
-
-def create_account(db, settings, login_id, password, roles):
-    require(len(password) >= 12, "VALIDATION_ERROR", "비밀번호는 12자 이상이어야 합니다.", 422)
-    require(set(roles) <= {"USER", "TECHNICIAN"} and roles, "VALIDATION_ERROR", "계정 역할을 확인하세요.", 422)
-    require(not db.scalar(select(Account).where(Account.login_id == login_id)), "ACCOUNT_EXISTS", "이미 발급한 계정입니다.")
-    account = Account(id=uid(), login_id=login_id, password_hash=hash_password(password), roles=roles)
-    db.add(account)
-    db.flush()
-    if "TECHNICIAN" in roles:
-        ctx = Context(db, Actor(account.id, "TECHNICIAN", None, None), settings)
-        ctx.create("TECHNICIAN", {"profile": {"displayName": login_id, "fields": [], "regionIds": [],
-                    "contacts": [], "representativeMediaIds": []}})
-    return account
 
 
 def import_references(db, bundle):

@@ -663,6 +663,12 @@ def test_sourceless_api_and_alembic_imports(tmp_path):
     env = {**os.environ, "FMH_DATABASE_URL": f"sqlite:///{tmp_path}/compiled.db", "FMH_LOG_DIR": str(tmp_path / "logs"), "PYTHONPATH": str(tmp_path)}
     invocation = ["uv", "run", "--no-project", "--no-sync", "--python", sys.executable, "python"]
     subprocess.run([*invocation, "-m", "app.migrate"], cwd=tmp_path, env=env, check=True, timeout=30)
-    subprocess.run([*invocation, "-c", "from app.main import app; from app.worker import run_once; assert len(app.openapi()['paths']) == 70"],
+    verify_api = "\n".join([
+        "from app.main import app",
+        "from app.worker import run_once",
+        "from app.contract_data import ENDPOINTS",
+        "assert len(app.openapi()['paths']) == len({entry['path'] for entry in ENDPOINTS})",
+    ])
+    subprocess.run([*invocation, "-c", verify_api],
                    cwd=tmp_path, env=env, check=True, timeout=30)
     assert not list((tmp_path / "app").rglob("*.py"))

@@ -7,12 +7,14 @@ from app.contract_data import ENDPOINTS, ENUM_DESCRIPTIONS, ENUMS, SCHEMA_DESCRI
 from app.contracts import type_schema
 from app.errors import DomainError
 
-API_DESCRIPTION = """요구사항 v1.7 · FE·BE 분업 v1.4 · API v0.1 기준입니다. 기본 경로는 `/v1`입니다.
+API_DESCRIPTION = """요구사항 v1.7 · FE·BE 분업 v1.4 · API v1.1 기준입니다. 기본 경로는 `/v1`입니다.
 
 ### 인증과 실행 순서
 
-1. 사전 발급 계정으로 `POST /v1/auth/login`의 **Try it out**을 실행합니다.
-2. 브라우저가 받은 HttpOnly 세션 쿠키를 이후 같은 출처의 요청에 자동으로 보냅니다.
+1. 계정이 없다면 `POST /v1/auth/signup`으로 로그인 ID와 비밀번호를 등록합니다.
+   별도 인증 없이 일반 사용자로 가입하며, 이미 사용 중인 ID는 `409 ACCOUNT_EXISTS`입니다.
+2. 가입 또는 사전 발급한 계정으로 `POST /v1/auth/login`의 **Try it out**을 실행합니다.
+   브라우저가 받은 HttpOnly 세션 쿠키를 이후 같은 출처의 요청에 자동으로 보냅니다.
 3. `GET /v1/auth/me`로 현재 역할을 확인하고, 기사 기능은 `PATCH /v1/auth/role`로
    허용된 `TECHNICIAN` 역할로 전환한 뒤 호출합니다.
 
@@ -69,7 +71,8 @@ COMMON_ERRORS = {
 }
 
 REQUEST_EXAMPLES = {
-    ("POST", "/auth/login"): {"loginId": "발급받은 로그인 ID", "password": "발급받은 비밀번호"},
+    ("POST", "/auth/signup"): {"loginId": "new-user", "password": "example-password-123"},
+    ("POST", "/auth/login"): {"loginId": "new-user", "password": "example-password-123"},
     ("PATCH", "/auth/role"): {"role": "TECHNICIAN"},
     ("POST", "/requests"): {
         "metadata": json.dumps({
@@ -126,8 +129,11 @@ def request_body(endpoint):
                     schema["properties"][name]["example"] = example[name]
     elif example:
         media["example"] = example
-    if endpoint["path"] == "/auth/login":
+    if endpoint["path"] in ("/auth/signup", "/auth/login"):
         schema["properties"]["password"].update({"format": "password", "writeOnly": True})
+    if endpoint["path"] == "/auth/signup":
+        schema["properties"]["loginId"].update({"minLength": 1, "maxLength": 128})
+        schema["properties"]["password"]["minLength"] = 12
     description = (
         "DTO를 JSON 문자열 Form 필드로 입력하고 파일을 첨부합니다."
         if endpoint["multipart"]

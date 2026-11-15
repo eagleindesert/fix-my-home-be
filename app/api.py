@@ -11,7 +11,10 @@ from app.errors import require
 from app.media import normalize_image
 from app.pagination import page
 from app.security import Actor, new_session, require_actor, session_dto, verify_password
-from app.services import ai, consultations, deletion, handover, reference, requests, reservations, technicians, views
+from app.services import (
+    accounts, ai, consultations, deletion, handover, reference,
+    requests, reservations, technicians, views,
+)
 from app.services.context import ACTIVE_RESERVATIONS
 from app.time_rules import as_utc, iso
 
@@ -60,6 +63,11 @@ def media_response(ctx, media_id):
 
 def dispatch(ctx, endpoint, params, query, body, files, response):
     method, path = endpoint["method"], endpoint["path"]
+    if path == "/auth/signup":
+        account = accounts.create_account(
+            ctx.db, ctx.settings, body["loginId"], body["password"], ["USER"],
+        )
+        return {"accountId": account.id, "loginId": account.login_id, "availableRoles": account.roles}
     if path == "/auth/login":
         account = ctx.db.scalar(select(Account).where(Account.login_id == body["loginId"]))
         require(account and verify_password(body["password"], account.password_hash), "INVALID_CREDENTIALS", "로그인 정보를 확인하세요.", 401)

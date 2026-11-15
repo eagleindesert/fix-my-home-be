@@ -393,6 +393,18 @@ SCHEMAS = {'ErrorResponseDTO': [{'name': 'code', 'type': 'string', 'required': T
                  'type': 'string?',
                  'required': False,
                  'description': '다음 페이지 식별자; 마지막이면 null'}],
+ 'SignupDTO': [{'name': 'accountId',
+                'type': 'string',
+                'required': False,
+                'description': '생성된 계정 ID'},
+               {'name': 'loginId',
+                'type': 'string',
+                'required': False,
+                'description': '가입한 로그인 ID'},
+               {'name': 'availableRoles',
+                'type': 'Role[]',
+                'required': False,
+                'description': '회원가입에서는 USER 하나만 반환'}],
  'SessionDTO': [{'name': 'accountId',
                  'type': 'string',
                  'required': False,
@@ -2915,6 +2927,7 @@ SCHEMAS = {'ErrorResponseDTO': [{'name': 'code', 'type': 'string', 'required': T
 
 SCHEMA_DESCRIPTIONS = {'ErrorResponseDTO': '오류는 data 래퍼 없이 루트 객체로 반환합니다.',
  'PageDTO<T>': '',
+ 'SignupDTO': '회원가입으로 생성한 일반 사용자 계정 정보이다. 비밀번호·해시·세션 식별자는 반환하지 않는다.',
  'SessionDTO': '세션 식별자는 JSON에 넣지 않고 `Set-Cookie`로 반환한다. 만료 정보의 본문 제공 여부는 미정이다.',
  'ServiceInfoDTO': '',
  'TriggerDTO': '',
@@ -3155,16 +3168,51 @@ TAGS = [{'name': 'Authentication', 'description': '인증·역할'},
  {'name': 'Deletion', 'description': '본인 자료 삭제'}]
 
 ENDPOINTS = [{'method': 'POST',
-  'path': '/auth/login',
-  'summary': '테스트 계정 로그인',
+  'path': '/auth/signup',
+  'summary': '일반 사용자 회원가입',
   'tag': 'Authentication',
   'description': '- **인증 요구사항**: ❌\n'
-                 '- **선행 조건**: 사전 발급 계정\n'
-                 '- **설명**: 발급 계정으로 로그인하고 세션 쿠키와 계정·역할 정보를 반환한다.',
+                 '- **선행 조건**: 사용하지 않은 로그인 ID\n'
+                 '- **설명**: 로그인 ID와 비밀번호로 일반 사용자 계정을 생성한다. 이메일·휴대전화 인증이나 운영자 승인 절차는 없다. 계정에는 '
+                 '`USER` 역할만 부여하며 역할 입력은 허용하지 않는다. 가입 후 `POST /auth/login`으로 로그인한다. 가입 자체로 세션 쿠키를 '
+                 '발급하거나 기존 로그인 세션을 변경하지 않는다.\n'
+                 '\n'
+                 '**처리 규칙**\n'
+                 '\n'
+                 '`Idempotency-Key`는 필요하지 않다. 동일 ID로 다시 요청하면 비밀번호 일치 여부와 관계없이 `409 '
+                 'ACCOUNT_EXISTS`를 반환한다. 동시 가입 요청에서도 같은 ID의 계정은 하나만 생성된다.',
+  'path_parameters': [],
+  'response_description': '| 필드 | 타입 | 설명 |\n'
+                          '| --- | --- | --- |\n'
+                          '| `data` | SignupDTO | 생성된 계정 정보; 세션 정보와 비밀번호는 포함하지 않음 |',
+  'response_headers': {},
+  'errors': {'409': ['이미 사용 중인 로그인 ID (`ACCOUNT_EXISTS`)'],
+             '422': ['필수 필드 누락, ID 형식·길이 또는 비밀번호 길이 위반, 정의되지 않은 필드 입력 (`VALIDATION_ERROR`)']},
+  'status': 201,
+  'response': 'SignupDTO',
+  'authenticated': False,
+  'idempotent': False,
+  'multipart': False,
+  'body': [{'name': 'loginId',
+            'type': 'string',
+            'required': True,
+            'description': '1~128자; 앞뒤 공백 불가; 대소문자를 구분하여 중복 검사 · 로그인 식별값; 공백만 입력할 수 없음'},
+           {'name': 'password',
+            'type': 'string',
+            'required': True,
+            'description': '기존 계정 정책과 동일하게 12자 이상 · 해시로 저장하며 로그·응답에 포함하지 않음'}],
+  'query': []},
+ {'method': 'POST',
+  'path': '/auth/login',
+  'summary': '계정 로그인',
+  'tag': 'Authentication',
+  'description': '- **인증 요구사항**: ❌\n'
+                 '- **선행 조건**: 가입 또는 사전 발급한 계정\n'
+                 '- **설명**: 계정으로 로그인하고 세션 쿠키와 계정·역할 정보를 반환한다.',
   'path_parameters': [],
   'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | SessionDTO | 처리 결과 |',
   'response_headers': {'Set-Cookie': '세션 쿠키; 이름·속성은 공통 미정 항목 참조'},
-  'errors': {'401': ['테스트 계정 인증 실패 (`INVALID_CREDENTIALS`)']},
+  'errors': {'401': ['계정 인증 실패 (`INVALID_CREDENTIALS`)']},
   'status': 200,
   'response': 'SessionDTO',
   'authenticated': False,
@@ -3173,11 +3221,11 @@ ENDPOINTS = [{'method': 'POST',
   'body': [{'name': 'loginId',
             'type': 'string',
             'required': True,
-            'description': '발급 계정 · 로그인 식별값'},
+            'description': '가입 또는 사전 발급한 계정 · 로그인 식별값'},
            {'name': 'password',
             'type': 'string',
             'required': True,
-            'description': '발급 자격증명 · 로그·응답에 포함하지 않음'}],
+            'description': '해당 계정의 비밀번호 · 로그·응답에 포함하지 않음'}],
   'query': []},
  {'method': 'POST',
   'path': '/auth/logout',
