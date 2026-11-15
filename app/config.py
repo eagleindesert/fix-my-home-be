@@ -8,10 +8,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="FMH_", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="FMH_", extra="ignore", hide_input_in_errors=True,
+    )
 
     environment: str = "development"
-    database_url: SecretStr = SecretStr("postgresql+psycopg2://fmh:fmh@localhost:5432/fmh")
+    database_url: SecretStr = SecretStr("postgresql+psycopg2://admin:admin@localhost:5432/fmh")
     session_secret: SecretStr = SecretStr("development-only-change-this-secret")
     session_cookie: str = "fmh_session"
     session_hours: int = Field(default=12, ge=1, le=720)
@@ -33,7 +35,9 @@ class Settings(BaseSettings):
     def production_secrets(self):
         if self.environment == "production":
             secret = self.session_secret.get_secret_value()
-            if secret.startswith(("development-", "replace_")) or len(secret) < 32:
+            if secret.startswith(("development-", "replace_")):
+                raise ValueError("운영 FMH_SESSION_SECRET의 예시값을 실제 무작위 비밀값으로 변경하세요.")
+            if len(secret) < 32:
                 raise ValueError("운영 FMH_SESSION_SECRET은 32자 이상이어야 합니다.")
             if not self.cookie_secure:
                 raise ValueError("운영 세션 쿠키에는 Secure가 필요합니다.")

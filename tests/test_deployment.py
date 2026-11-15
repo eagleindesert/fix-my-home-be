@@ -256,10 +256,15 @@ def test_invalid_options_stop_before_docker_or_env_access(tmp_path, relative_scr
     docker = binary / "docker"
     docker.write_text('#!/usr/bin/env bash\nprintf "unexpected Docker call\\n" > "$CALLS"\n')
     docker.chmod(0o755)
+    uv = binary / "uv"
+    uv.write_text('#!/usr/bin/env bash\nprintf "unexpected lookup\\n" > "$LOOKUP_CALLS"\nexit 8\n')
+    uv.chmod(0o755)
     env = {
         **os.environ, "PATH": f"{binary}:{os.environ['PATH']}",
-        "CALLS": str(tmp_path / "calls"),
+        "CALLS": str(tmp_path / "calls"), "LOOKUP_CALLS": str(tmp_path / "lookup-calls"),
     }
+    if relative_script == "scripts/build-push.sh" and arguments[0] == "v2":
+        arguments = arguments[1:]
 
     completed = subprocess.run(
         [str(script), *arguments], cwd=tmp_path, env=env, capture_output=True, text=True,
@@ -267,6 +272,7 @@ def test_invalid_options_stop_before_docker_or_env_access(tmp_path, relative_scr
 
     assert completed.returncode == 2
     assert not (tmp_path / "calls").exists()
+    assert not (tmp_path / "lookup-calls").exists()
     assert not (project / ".runtime").exists()
     assert not (project / ".env").exists()
 
@@ -324,39 +330,66 @@ fi
     assert (tmp_path / "calls").read_text().splitlines() == expected_calls
 
 
-@pytest.mark.parametrize("build_exit, image_name, platform", [
-    (0, None, None),
-    (0, "registry.example/team/backend", "linux/amd64"),
-    (7, "registry.example/team/backend", "linux/amd64"),
-])
-def test_build_push_runs_alone_and_cleans_builder(tmp_path, build_exit, image_name, platform):
+@pytest.fixture
+def push_project(tmp_path):
     project = tmp_path / "project"
     scripts = project / "scripts"
-    scripts.mkdir(parents=True)
-    shutil.copy2(ROOT / "scripts/build-push.sh", scripts)
+    (scripts / "etc").mkdir(parents=True)
+    script = scripts / "build-push.sh"
+    shutil.copy2(ROOT / "scripts/build-push.sh", script)
+    shutil.copy2(ROOT / "scripts/etc/docker_hub_tags.py", scripts / "etc")
+    shutil.copy2(ROOT / "scripts/etc/docker_credentials.py", scripts / "etc")
     binary = tmp_path / "bin"
     binary.mkdir()
     docker = binary / "docker"
     docker.write_text('''#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "$CALLS"
+printf 'docker %s\\n' "$*" >> "$EVENTS"
 if [[ $1 == buildx && $2 == build ]]; then
     printf '%s\\n' "$PWD" > "$BUILD_DIR"
+    printf 'MOCK_BUILD_STARTED\\n'
     exit "$BUILD_EXIT"
 fi
 ''')
     docker.chmod(0o755)
+    uv = binary / "uv"
+    uv.write_text('''#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "$LOOKUP_CALLS"
+printf 'lookup\\n' >> "$EVENTS"
+if [[ $PWD != "$PROJECT_DIR" ]]; then exit 9; fi
+if [[ $LOOKUP_EXIT != 0 ]]; then
+    printf 'mock Docker Hub lookup failed\\n' >&2
+    exit "$LOOKUP_EXIT"
+fi
+printf 'Docker Hub 기존 태그:\\n  v0.1.0\\n'
+''')
+    uv.chmod(0o755)
     env = {**os.environ, "PATH": f"{binary}:{os.environ['PATH']}",
            "CALLS": str(tmp_path / "calls"), "BUILD_DIR": str(tmp_path / "build-dir"),
-           "BUILD_EXIT": str(build_exit)}
+           "LOOKUP_CALLS": str(tmp_path / "lookup-calls"), "EVENTS": str(tmp_path / "events"),
+           "PROJECT_DIR": str(project), "BUILD_EXIT": "0", "LOOKUP_EXIT": "0"}
     env.pop("IMAGE_NAME", None)
+    return project, script, env
+
+
+@pytest.mark.parametrize("build_exit, image_name, platform", [
+    (0, None, None),
+    (0, "docker.io/example-team/backend", "linux/amd64"),
+    (7, "example-team/backend", "linux/amd64"),
+])
+def test_build_push_queries_then_reads_version_and_cleans_builder(
+    tmp_path, push_project, build_exit, image_name, platform,
+):
+    project, script, env = push_project
+    env["BUILD_EXIT"] = str(build_exit)
     if image_name is not None:
         env["IMAGE_NAME"] = image_name
 
-    invocation = ["bash", str(scripts / "build-push.sh")]
+    invocation = [str(script)]
     options = ["--platform", platform] if platform else []
     completed = subprocess.run(
-        [*invocation, "v0.2.0", *options],
-        cwd=tmp_path, env=env, capture_output=True, text=True,
+        [*invocation, *options], input="v0.2.0\n",
+        cwd=tmp_path, env=env, capture_output=True, text=True, timeout=10,
     )
 
     assert completed.returncode == build_exit
@@ -364,6 +397,17 @@ fi
     calls = (tmp_path / "calls").read_text().splitlines()
     builder = calls[0].split()[3]
     image_name = image_name or "eagleindesert/fix-my-home-be"
+    assert (tmp_path / "lookup-calls").read_text().splitlines() == [
+        f"run --no-env-file --no-project scripts/etc/docker_hub_tags.py {image_name}",
+    ]
+    assert (tmp_path / "events").read_text().splitlines() == [
+        "lookup", *(f"docker {call}" for call in calls),
+    ]
+    assert (
+        completed.stdout.index("  v0.1.0")
+        < completed.stdout.index("푸시할 버전: ")
+        < completed.stdout.index("MOCK_BUILD_STARTED")
+    )
     assert calls == [
         f"buildx create --name {builder} --driver docker-container --driver-opt restart-policy=no",
         f"buildx inspect --builder {builder} --bootstrap",
@@ -383,27 +427,168 @@ fi
     assert "현재 푸시 버전: v0.2.0" in completed.stdout
     assert len(histories) == 1 and histories[0].read_text() == "v0.2.0\n"
     failed = subprocess.run(
-        [*invocation, "v0.3.0", *options], cwd=tmp_path,
-        env={**env, "BUILD_EXIT": "7"}, capture_output=True, text=True,
+        [*invocation, *options], input="v0.3.0\n", cwd=tmp_path,
+        env={**env, "BUILD_EXIT": "7"}, capture_output=True, text=True, timeout=10,
     )
     assert failed.returncode == 7
     assert "현재 푸시 버전" not in failed.stdout
     assert histories[0].read_text() == "v0.2.0\n"
     following = subprocess.run(
-        [*invocation, "v0.4.0", *options], cwd=tmp_path, env=env,
-        check=True, capture_output=True, text=True,
+        [*invocation, *options], input="v0.4.0\n", cwd=tmp_path, env=env,
+        check=True, capture_output=True, text=True, timeout=10,
     )
     assert "이전 푸시 버전 (이 컴퓨터): v0.2.0" in following.stdout
     assert "현재 푸시 버전: v0.4.0" in following.stdout
     assert histories[0].read_text() == "v0.4.0\n"
     other_platform = "linux/arm64" if platform == "linux/amd64" else "linux/amd64"
     separate = subprocess.run(
-        [*invocation, "v0.5.0", "--platform", other_platform],
-        cwd=tmp_path, env=env, check=True, capture_output=True, text=True,
+        [*invocation, "--platform", other_platform], input="v0.5.0\n",
+        cwd=tmp_path, env=env, check=True, capture_output=True, text=True, timeout=10,
     )
     assert "이전 푸시 버전 (이 컴퓨터): 기록 없음" in separate.stdout
     assert histories[0].read_text() == "v0.4.0\n"
     assert not list(history_directory.glob(".push.*"))
+    assert len((tmp_path / "lookup-calls").read_text().splitlines()) == 4
+    assert not (project / ".env").exists()
+
+
+def test_build_push_missing_image_prompts_and_builds_first_version(tmp_path, push_project):
+    project, script, env = push_project
+    real_uv = shutil.which("uv")
+    assert real_uv is not None, "이 검증은 Python 실행에 uv가 필요합니다."
+    runner = project / "mock_registry_lookup.py"
+    runner.write_text('''import io
+import json
+import sys
+from pathlib import Path
+from urllib.error import HTTPError
+
+sys.path.insert(0, str(Path(__file__).parent / "scripts" / "etc"))
+import docker_hub_tags as hub
+
+class Response(io.BytesIO):
+    headers = {}
+
+responses = iter([
+    Response(json.dumps({"token": "fake-registry-token"}).encode()),
+    HTTPError("https://registry-1.docker.io/v2/eagleindesert/fix-my-home-be/tags/list", 404,
+              "fake-private-error-detail", {}, io.BytesIO(b"fake-private-error-body")),
+])
+
+def fake_urlopen(request, *, timeout):
+    response = next(responses)
+    if isinstance(response, Exception):
+        raise response
+    return response
+
+hub.load_docker_credentials = lambda: None
+hub.urlopen = fake_urlopen
+raise SystemExit(hub.main(sys.argv[1:]))
+''')
+    (tmp_path / "bin" / "uv").write_text('''#!/usr/bin/env bash
+printf 'lookup\\n' >> "$EVENTS"
+exec "$REAL_UV" run --no-env-file --no-project --offline --python "$TEST_PYTHON" "$LOOKUP_RUNNER" "$5"
+''')
+    env.update({
+        "REAL_UV": real_uv, "TEST_PYTHON": sys.executable, "LOOKUP_RUNNER": str(runner),
+        "UV_CACHE_DIR": str(tmp_path / "uv-cache"), "UV_NO_ENV_FILE": "1",
+        "DOCKER_CONFIG": str(tmp_path / "unused-docker-config"),
+    })
+
+    completed = subprocess.run(
+        [str(script)], input="v0.1.0\n", cwd=tmp_path, env=env,
+        capture_output=True, text=True, timeout=15,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert (
+        completed.stdout.index("등록된 이미지가 없습니다")
+        < completed.stdout.index("푸시할 버전: ")
+        < completed.stdout.index("MOCK_BUILD_STARTED")
+    )
+    assert "fake-private" not in completed.stdout + completed.stderr
+    calls = (tmp_path / "calls").read_text().splitlines()
+    builds = [call for call in calls if call.startswith("buildx build ")]
+    assert len(builds) == 1
+    assert "--tag eagleindesert/fix-my-home-be:v0.1.0 --push ." in builds[0]
+    histories = list((project / ".runtime/build-push").glob("*.tag"))
+    assert len(histories) == 1 and histories[0].read_text() == "v0.1.0\n"
+    assert not (project / ".env").exists()
+    assert not (tmp_path / "unused-docker-config").exists()
+
+
+@pytest.mark.parametrize("arguments", [
+    ["v0.2.0"], ["--platform", "linux/arm64", "v0.2.0"],
+])
+def test_build_push_rejects_positional_versions_before_lookup(tmp_path, push_project, arguments):
+    project, script, env = push_project
+
+    completed = subprocess.run(
+        [str(script), *arguments], input="v0.3.0\n",
+        cwd=tmp_path, env=env, capture_output=True, text=True, timeout=10,
+    )
+
+    assert completed.returncode == 2
+    assert not (tmp_path / "lookup-calls").exists()
+    assert not (tmp_path / "calls").exists()
+    assert not (project / ".runtime").exists()
+    assert "푸시할 버전: " not in completed.stdout
+
+
+@pytest.mark.parametrize("has_history", [False, True])
+def test_build_push_lookup_failure_does_not_prompt_or_change_history(
+    tmp_path, push_project, has_history,
+):
+    project, script, env = push_project
+    history = project / ".runtime/build-push/previous.tag"
+    if has_history:
+        history.parent.mkdir(parents=True)
+        history.write_text("previous-success\n")
+    before = {path: path.read_bytes() for path in history.parent.glob("*")}
+
+    completed = subprocess.run(
+        [str(script)], input="v0.2.0\n", cwd=tmp_path,
+        env={**env, "LOOKUP_EXIT": "7"}, capture_output=True, text=True, timeout=10,
+    )
+
+    assert completed.returncode != 0
+    assert (tmp_path / "events").read_text().splitlines() == ["lookup"]
+    assert not (tmp_path / "calls").exists()
+    assert "푸시할 버전: " not in completed.stdout
+    assert {path: path.read_bytes() for path in history.parent.glob("*")} == before
+    assert (project / ".runtime").exists() == has_history
+
+
+@pytest.mark.parametrize("input_text", ["", "\ninvalid/tag\n"])
+def test_build_push_eof_cancels_before_build_or_history(tmp_path, push_project, input_text):
+    project, script, env = push_project
+
+    completed = subprocess.run(
+        [str(script)], input=input_text, cwd=tmp_path, env=env,
+        capture_output=True, text=True, timeout=10,
+    )
+
+    assert completed.returncode == 1
+    assert completed.stdout.index("  v0.1.0") < completed.stdout.index("푸시할 버전: ")
+    assert (tmp_path / "events").read_text().splitlines() == ["lookup"]
+    assert not (tmp_path / "calls").exists()
+    assert not (project / ".runtime").exists()
+
+
+def test_build_push_reprompts_invalid_input_without_repeating_lookup(tmp_path, push_project):
+    _, script, env = push_project
+
+    completed = subprocess.run(
+        [str(script)], input="\ninvalid/tag\nv0.2.0\n", cwd=tmp_path, env=env,
+        check=True, capture_output=True, text=True, timeout=10,
+    )
+
+    assert completed.stdout.count("푸시할 버전: ") == 3
+    assert len((tmp_path / "lookup-calls").read_text().splitlines()) == 1
+    calls = (tmp_path / "calls").read_text().splitlines()
+    builds = [call for call in calls if call.startswith("buildx build ")]
+    assert len(builds) == 1
+    assert "--tag eagleindesert/fix-my-home-be:v0.2.0 --push ." in builds[0]
 
 
 @pytest.mark.skipif(shutil.which("docker") is None, reason="Docker CLI is not installed")
@@ -429,6 +614,8 @@ def test_compose_resolves_build_and_deployment_settings(compose_file, published_
     completed = subprocess.run(command, env=env, capture_output=True, text=True, check=True, timeout=30)
     config = json.loads(completed.stdout)
     assert set(config["services"]) == {"db", "migrate", "be", "worker"}
+    assert config["services"]["db"]["environment"]["POSTGRES_USER"] == "admin"
+    assert config["services"]["db"]["environment"]["POSTGRES_PASSWORD"] == env["POSTGRES_PASSWORD"]
     local = compose_file == "docker-compose.yaml"
     assert [
         (port["host_ip"], port["published"], port["target"])

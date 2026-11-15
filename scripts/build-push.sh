@@ -3,10 +3,10 @@ set -euo pipefail
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
 usage() {
-    printf '사용법: scripts/build-push.sh <버전> [--platform linux/arm64|linux/amd64]\n'
+    printf '사용법: scripts/build-push.sh [--platform linux/arm64|linux/amd64]\n'
+    printf 'Docker Hub의 기존 태그를 조회한 뒤 푸시할 버전을 입력받습니다.\n'
 }
 
-version=
 platform=linux/arm64
 platform_selected=false
 while (( $# )); do
@@ -21,30 +21,33 @@ while (( $# )); do
             shift 2
             ;;
         --help|-h) usage; exit 0 ;;
-        -*)
+        *)
             usage >&2
             exit 2
             ;;
-        *)
-            if [[ -n $version ]]; then
-                usage >&2
-                exit 2
-            fi
-            version=$1
-            shift
-            ;;
     esac
 done
-if [[ ! $version =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
-    usage >&2
-    exit 2
-fi
 case "$platform" in
     linux/arm64|linux/amd64) ;;
     *) usage >&2; exit 2 ;;
 esac
 
 image_name=${IMAGE_NAME:-eagleindesert/fix-my-home-be}
+
+# 태그를 모두 확인하고 버전을 선택하기 전에는 빌더나 푸시 기록을 만들지 않는다.
+uv run --no-env-file --no-project scripts/etc/docker_hub_tags.py "$image_name"
+while true; do
+    printf '\n푸시할 버전: '
+    if ! IFS= read -r version; then
+        printf '\n버전 입력이 취소되었습니다.\n' >&2
+        exit 1
+    fi
+    if [[ $version =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+        break
+    fi
+    printf '유효한 Docker 이미지 버전을 입력하세요. 영문·숫자·밑줄로 시작하는 1~128자 태그가 필요합니다.\n' >&2
+done
+
 builder_name="fmh-${USER:-builder}-$$"
 builder_created=false
 temporary=

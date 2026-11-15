@@ -10,7 +10,7 @@ Python 실행과 의존성 관리는 uv를 사용합니다. 배포 기준은 CPy
 
 ```bash
 uv sync --locked
-export FMH_DATABASE_URL='postgresql+psycopg2://fmh:password@localhost:5432/fmh'
+export FMH_DATABASE_URL='postgresql+psycopg2://admin:admin@localhost:5432/fmh'
 uv run python -m app.migrate
 uv run python -m app.admin create-account user-one --roles USER
 uv run python -m app.admin create-account technician-one --roles USER TECHNICIAN
@@ -42,7 +42,7 @@ uv run python -m scripts.etc.generate_contract
 
 ## 빌드와 배포
 
-루트의 `start.sh`는 배포 이미지를 실행합니다. `scripts/`에는 빌드 도구인 `build-push.sh`, `build-start.sh`와 환경 양식 동기화 도구인 `sync_env.py`를 둡니다. 보조 Python 도구는 `scripts/etc/`에 모읍니다. 배포·빌드 셸 스크립트는 각각 독립 실행되며, 배포 서버의 `start.sh`에는 uv나 별도 Python 파일이 필요하지 않습니다.
+루트의 `start.sh`는 배포 이미지를 실행합니다. `scripts/`에는 빌드 도구인 `build-push.sh`, `build-start.sh`와 환경 양식 동기화 도구인 `sync_env.py`를 둡니다. 보조 Python 도구는 `scripts/etc/`에 모읍니다. `build-push.sh`는 태그 조회 도구를 uv로 실행하며, 이 도구에는 추가 Python 의존성이 없습니다. 배포 서버의 `start.sh`에는 uv나 별도 Python 파일이 필요하지 않습니다.
 
 로컬 개발자는 `.env.example`을 양식으로 다음 명령을 실행해 `.env`를 준비합니다.
 
@@ -56,7 +56,11 @@ uv run scripts/sync_env.py
 
 기존 추가 설정이 있는 상태에서 양식의 키를 삭제해도 추가 설정 구역은 하나로 유지됩니다. 이전 실행에서 중복된 구역 제목이 생겼다면 다음 동기화에서 제목을 정리하고 각 키의 주석과 값은 보존합니다.
 
-기존 파일은 스크립트 실행 중 내부에서만 읽고 값이나 파일 내용은 출력하지 않습니다. `.env.example`에는 예시 값만 작성하고 비밀번호와 세션 비밀값은 사용자가 `.env`에서 실제 값으로 교체합니다. DB URL의 비밀번호는 URL 인코딩하며 서버 환경 파일은 저장소에 커밋하지 않습니다.
+기존 파일은 스크립트 실행 중 내부에서만 읽고 값이나 파일 내용은 출력하지 않습니다. DB 접속은 사용자 `admin`, 암호 `admin`, DB 이름 `fmh`를 기준으로 합니다. Compose의 DB 호스트는 `db`, Python 직접 실행의 기본 호스트는 `localhost`입니다. DB에는 이메일 설정이 없습니다. 서버 환경 파일은 저장소에 커밋하지 않습니다. 동기화는 기존 값을 보존하므로, 이미 존재하는 `.env`의 `POSTGRES_USER`·`POSTGRES_PASSWORD`·`FMH_DATABASE_URL`을 이 계정으로 맞추려면 사용자가 직접 변경해야 합니다.
+
+이미 다른 계정으로 초기화한 `postgres-data` 볼륨에서는 환경변수만 바꿔도 DB 계정이 변경되지 않습니다. 이 경우 기존 DB의 계정과 암호도 별도로 맞춰야 합니다. [PostgreSQL 이미지의 초기화 규칙](https://github.com/docker-library/docs/blob/master/postgres/README.md#environment-variables)을 참고하세요.
+
+운영 `FMH_SESSION_SECRET`은 DB 비밀번호와 다른 32자 이상의 무작위 값이어야 합니다. `development-`·`replace_`로 시작하는 값은 길이가 충분해도 예시값으로 판단해 거부합니다. 환경 양식 동기화는 비밀값을 자동 생성하지 않으므로 사용자가 VM의 `.env`에서 변경해야 합니다. 이 검사는 DB 연결 전 마이그레이션 진입점에서도 실행합니다. `migrate` 로그에 해당 설정 오류가 나오면 값을 수정하고 `./start.sh <배포한 버전>`으로 다시 실행합니다. 설정값 수정만으로 같은 이미지를 다시 사용할 수 있습니다.
 
 스크립트는 작업 디렉터리와 관계없이 저장소 루트를 기준으로 동작합니다. 다른 배포 디렉터리에 있는 양식을 반영할 때는 `--directory /path/to/deployment`를 지정합니다. 추가 의존성은 없으며, 프로젝트 의존성 동기화와 uv의 환경 파일 로딩을 생략하려면 `uv run --no-project --no-env-file scripts/sync_env.py`로 실행합니다.
 
@@ -73,11 +77,11 @@ docker compose -f docker-compose.yaml up -d --build
 # 로컬 실행 대상 CPU를 지정합니다. 에뮬레이션 없이 실행하려면 호스트 CPU와 맞춥니다.
 ./scripts/build-start.sh local-v0.1.0 --platform linux/amd64
 
-# 로그인한 Docker Hub 계정으로 ARM64 이미지를 배포합니다. 컨테이너를 실행하지 않습니다.
-./scripts/build-push.sh v0.1.0
+# Docker Hub 태그 목록을 확인하고, 프롬프트에서 버전을 입력한 뒤 ARM64 이미지를 푸시합니다.
+./scripts/build-push.sh
 
-# 빌드·푸시 대상 CPU만 변경합니다. 지원 값은 linux/arm64와 linux/amd64입니다.
-./scripts/build-push.sh v0.1.0 --platform linux/amd64
+# 빌드·푸시 대상 CPU를 변경할 때도 조회 후 버전을 입력합니다.
+./scripts/build-push.sh --platform linux/amd64
 ```
 
 `docker-compose.yaml`은 배포 Compose의 DB·마이그레이션·API·worker 설정을 상속하고 로컬 빌드와 개발 환경 설정을 적용합니다. `build-start.sh`는 이 파일을 대상으로 `docker compose up -d --build`를 실행합니다. 루트에서는 `docker compose up -d --build`만으로도 파일을 자동 선택합니다. `LOCAL_IMAGE_TAG` 기본값은 `local`, `LOCAL_IMAGE_PLATFORM` 기본값은 `linux/amd64`이며 ARM 개발 호스트에서는 `linux/arm64`로 지정할 수 있습니다. 로컬 HTTP 쿠키를 사용하고 공개 포트와 허용 출처는 이 Compose 파일에서 각각 `8000`, `http://localhost:8000`으로 지정합니다. 이 값들은 배포용 `IMAGE_TAG`·`IMAGE_PLATFORM`·운영 쿠키 설정과 구분됩니다.
@@ -86,7 +90,15 @@ docker compose -f docker-compose.yaml up -d --build
 
 기본 이미지는 `eagleindesert/fix-my-home-be`입니다. `IMAGE_NAME`으로 변경할 수 있습니다. 두 빌드 스크립트는 각 실행 전용 Buildx builder를 `restart-policy=no`로 만들고 성공·실패 후 정지·제거합니다. `build-start.sh`는 `BUILDX_BUILDER`와 `COMPOSE_BAKE=true`로 해당 builder에 [Compose 빌드를 위임](https://docs.docker.com/compose/how-tos/dependent-images/#build-with-bake)하므로 Bake 위임을 지원하는 Docker Compose와 Buildx가 필요합니다. CLI에서 직접 실행할 때는 현재 Docker builder 설정을 사용합니다.
 
-`build-push.sh`는 성공한 뒤 이전·현재 푸시 버전과 대상 플랫폼을 출력합니다. 이전 버전은 이 컴퓨터의 같은 이미지·플랫폼에 대한 마지막 성공 기록이며, `.runtime/build-push/`에 저장합니다. 첫 실행은 `기록 없음`으로 표시하고 실패한 푸시는 기록을 바꾸지 않습니다. 레지스트리 전체의 최신 버전을 뜻하지 않습니다. 이 스크립트는 `.env`를 읽지 않으므로 이미지 이름을 바꿀 때는 `IMAGE_NAME=사용자/이미지 ./scripts/build-push.sh v0.1.0`처럼 전달합니다.
+`build-push.sh`는 [Registry V2 태그 API](https://distribution.github.io/distribution/spec/api/#listing-image-tags)의 모든 페이지를 조회하고 이름순으로 태그를 표시한 뒤 `푸시할 버전:` 프롬프트에서 버전을 입력받습니다. 이 API는 푸시 시각을 제공하지 않습니다. 버전은 이 단계에서만 입력하며, 선택한 태그로 빌드·푸시합니다. 이미 존재하는 태그를 입력하면 해당 태그를 갱신합니다. 태그 목록이 비었거나 첫 태그 조회가 404를 반환하면 `등록된 이미지가 없습니다`를 표시하고 첫 버전 입력으로 이어집니다.
+
+조회와 푸시는 같은 사용자의 [Docker CLI 로그인 정보](https://docs.docker.com/reference/cli/docker/login/)를 사용합니다. 먼저 `docker login`을 실행하면 별도의 조회용 토큰 없이 비공개 저장소도 조회할 수 있습니다. 조회 도구는 `DOCKER_CONFIG/config.json` 또는 기본 `~/.docker/config.json`에서 Hub 전용 `credHelpers`, 공통 `credsStore`, 파일의 `auths` 순으로 자격 증명을 선택합니다. 비밀번호·PAT 및 브라우저 로그인으로 저장한 자격 증명을 지원하고, 저장된 identity token도 refresh token 방식으로 교환합니다. 로그인 정보가 없으면 공개 저장소를 익명 조회합니다. `.env`를 읽지 않고 자격 증명 파일을 변경하지 않으며 비밀번호·토큰·응답 본문·credential helper 출력은 화면이나 로그에 남기지 않습니다.
+
+인증·권한·네트워크 오류 등 조회 실패 시에는 입력·빌드를 시작하지 않고 대상 이미지 이름과 오류 원인을 표시합니다. 인증 실패는 스크립트를 실행하는 사용자로 `docker login`을 다시 실행하고, 접근 거부는 해당 계정의 저장소 읽기 권한을 확인합니다. 인증 요청이나 두 번째 이후 태그 페이지의 404는 조회 실패로 처리합니다.
+
+빈 입력이나 잘못된 태그는 다시 입력받고, EOF 또는 Ctrl+C로 취소할 수 있습니다. 태그를 확인하고 유효한 버전을 입력하기 전에는 builder와 푸시 기록을 만들지 않습니다. 지원 이미지는 Docker Hub의 `namespace/repository`이며 `docker.io/`·`index.docker.io/` 접두사도 사용할 수 있습니다. 이미지 이름은 `IMAGE_NAME=사용자/이미지 ./scripts/build-push.sh`처럼 지정합니다.
+
+푸시 성공 후에는 이전·현재 푸시 버전과 대상 플랫폼을 출력합니다. 이전 버전은 이 컴퓨터의 같은 이미지·플랫폼에 대한 마지막 성공 기록이며, `.runtime/build-push/`에 저장합니다. 첫 실행은 `기록 없음`으로 표시하고 실패한 푸시는 기록을 바꾸지 않습니다. 이는 조회한 Docker Hub 태그 목록과 별개인 로컬 기록입니다.
 
 `Dockerfile`의 모든 `RUN` 단계는 `$BUILDPLATFORM`에서 실행합니다. 대상 CPU wheel을 `uv sync --python-platform … --no-build`로 설치하고 ELF 아키텍처를 검사합니다. 프로젝트 코드는 같은 CPython 3.13 빌드 이미지에서 `.pyc`로 컴파일합니다. 최종 ARM 이미지에는 해당 wheel, `.pyc`, 설정과 한글 글꼴만 복사하며 ARM 명령을 실행하지 않습니다. 애플리케이션·worker·migration의 `.py` 소스는 최종 이미지 레이어에 포함하지 않습니다. 표준 라이브러리와 외부 패키지 소스는 제거 대상이 아닙니다. Python 바이트코드는 원본 소스 배포를 피하는 방식이며 강한 역공학 방지를 보장하지 않습니다.
 
