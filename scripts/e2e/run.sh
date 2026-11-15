@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# 로그인 입력값이 bash -x 실행 로그에 남지 않게 한다.
+set +x
 set -Eeuo pipefail
 umask 077
 
@@ -12,12 +14,17 @@ usage() {
 사용법:
   scripts/e2e/run.sh --local [--output 디렉터리]
   scripts/e2e/run.sh --config 설정.json [--output 디렉터리]
+  scripts/e2e/run.sh --config 설정.json --interactive [--skip-health]
   scripts/e2e/run.sh --list
 
 --local   임시 DB·계정·HTTP 서버·worker를 시작한다. AI는 고정 응답이다.
 --config  준비된 테스트 서버를 실제 HTTP로 검증한다. 데이터가 생성·변경·삭제된다.
+--interactive     시작 메뉴에서 랜덤 회원가입 또는 기존 계정 입력을 선택한다.
+--random-accounts 사용자·다른 사용자·기사 계정을 회원가입 API로 생성한다.
+--prompt-login    기존 계정 3개의 ID/PW를 입력한다. 비밀번호는 표시하지 않는다.
+--skip-health     외부 접근이 차단된 /health/live, /health/ready 검사를 생략한다.
 --output  결과를 보관할 상위 디렉터리 (기본: .runtime/e2e).
---list    현재 79개 업무 API 목록을 출력한다.
+--list    현재 업무 API 목록을 출력한다.
 
 환경변수: E2E_BASE_URL (/v1 포함), E2E_ORIGIN, E2E_HTTP_TIMEOUT (기본 15초),
           E2E_POLL_TIMEOUT (기본 90초), FMH_PDF_FONT (로컬 PDF 한글 폰트).
@@ -26,11 +33,23 @@ USAGE
 }
 
 LOCAL=false
+LOGIN_MODE=config
+SKIP_HEALTH=false
 CONFIG=
 OUTPUT="$PROJECT_DIR/.runtime/e2e"
 while (( $# )); do
     case "$1" in
         --local) LOCAL=true; shift ;;
+        --interactive|--random-accounts|--prompt-login)
+            [[ $LOGIN_MODE == config ]] || die '계정 선택 옵션은 하나만 지정하세요.'
+            case "$1" in
+                --interactive) LOGIN_MODE=choose ;;
+                --random-accounts) LOGIN_MODE=random ;;
+                --prompt-login) LOGIN_MODE=prompt ;;
+            esac
+            shift
+            ;;
+        --skip-health) SKIP_HEALTH=true; shift ;;
         --config|--output)
             (( $# >= 2 )) && [[ -n $2 && $2 != --* ]] || die "$1 값이 필요합니다."
             if [[ $1 == --config ]]; then CONFIG=$2; else OUTPUT=$2; fi
@@ -44,6 +63,7 @@ done
 if [[ $LOCAL == true && -n $CONFIG ]] || [[ $LOCAL == false && -z $CONFIG ]]; then
     die '--local 또는 --config 중 하나를 지정하세요.'
 fi
+[[ $LOCAL == false || $LOGIN_MODE == config ]] || die '계정 선택 옵션은 --config와 함께 사용하세요.'
 for dependency in curl jq; do
     command -v "$dependency" >/dev/null || die "필수 명령이 없습니다: $dependency"
 done
@@ -60,6 +80,8 @@ RESPONSE_FILE="$RUN_DIR/last-response"
 HEADER_FILE="$RUN_DIR/response-headers"
 mkdir -- "$COOKIE_DIR"
 : > "$RUN_DIR/results.jsonl"
+printf '[]\n' > "$RUN_DIR/skipped.json"
+printf '{}\n' > "$RUN_DIR/accounts.json"
 CALL_COUNT=0 ASSERTIONS=0 LOCAL_PID= LAST_REQUEST=initialization
 trap finish EXIT
 trap 'printf "E2E 스크립트 오류 (줄 %s)\n" "$LINENO" >&2' ERR
@@ -91,24 +113,39 @@ if [[ $LOCAL == true ]]; then
     done
 fi
 [[ -f $CONFIG ]] || die '설정 JSON 파일을 찾을 수 없습니다.'
-jq -e '
-    [.accounts.user, .accounts.other, .accounts.technician]
-    | all(.[]; (.loginId | type == "string" and length > 0)
-        and (.password | type == "string" and length > 0))
-' "$CONFIG" >/dev/null || die '세 계정의 loginId/password 설정이 필요합니다.'
 BASE_URL=${E2E_BASE_URL:-$(config_value '.baseUrl')}
 BASE_URL=${BASE_URL%/}
 ORIGIN=${E2E_ORIGIN:-$(config_value '.origin')}
 [[ $BASE_URL =~ ^https?://[^/?#]+(/[^?#]*)?/v1$ && $BASE_URL != *@* ]] || die 'baseUrl은 인증 정보 없는 http(s) 주소이며 /v1로 끝나야 합니다.'
 [[ $ORIGIN =~ ^https?://[^/?#]+$ && $ORIGIN != *@* ]] || die 'origin은 경로 없는 http(s) 출처여야 합니다.'
 APP_URL=${BASE_URL%/v1}
+printf '대상 API: %s\n' "$BASE_URL"
+choose_login_mode
+if [[ $LOGIN_MODE == config ]]; then
+    jq -e '
+        [.accounts.user, .accounts.other, .accounts.technician]
+        | all(.[]; (.loginId | type == "string" and length > 0)
+            and (.password | type == "string" and length > 0))
+    ' "$CONFIG" >/dev/null || die '세 계정의 loginId/password 설정 또는 --interactive가 필요합니다.'
+fi
 PHOTO_PATH=$(config_value '.photoPath')
 if [[ $PHOTO_PATH != /* ]]; then PHOTO_PATH="$(dirname -- "$CONFIG")/$PHOTO_PATH"; fi
 [[ -r $PHOTO_PATH ]] || die 'photoPath의 업로드 이미지를 읽을 수 없습니다.'
 REGION=$(config_value '.region | tojson')
 LOCATION_ID=$(config_value '.locationId')
 WORK_TYPE=$(config_value '.workType')
-FAILED_DELETION_ID=$(config_value '.failedDeletionJobId')
+FAILED_DELETION_ID=$(jq -r '.failedDeletionJobId // empty' "$CONFIG")
+if [[ $LOGIN_MODE == random ]]; then
+    # 방금 가입한 사용자에게 기존 계정의 삭제 작업 소유권은 없다.
+    FAILED_DELETION_ID=
+fi
+if [[ $LOCAL == false && $LOGIN_MODE != random ]]; then
+    skip_success_endpoint 'POST /auth/signup' '기존 계정을 사용하므로 회원가입 성공 검증을 생략합니다.'
+fi
+if [[ -z $FAILED_DELETION_ID ]]; then
+    skip_success_endpoint 'POST /deletion-jobs/{jobId}/retry' \
+        '소유한 FAILED 삭제 작업이 없어 성공 재시도는 생략하고 완료 작업의 재시도 거부만 검사합니다.'
+fi
 AI_STATUS=$(config_value '.ai.expectedStatus')
 [[ $AI_STATUS == SUCCEEDED || $AI_STATUS == FAILED ]] || die 'ai.expectedStatus는 SUCCEEDED 또는 FAILED여야 합니다.'
 if [[ $AI_STATUS == FAILED ]]; then config_value '.ai.expectedErrorCode | select(length > 0)' >/dev/null; fi
@@ -137,6 +174,6 @@ diff -u "$RUN_DIR/expected-endpoints.txt" "$RUN_DIR/server-endpoints.txt" || die
 source "$SCRIPT_DIR/scenarios.sh"
 run_scenarios
 coverage
-jq -e '.missing | length == 0' "$RUN_DIR/coverage.json" >/dev/null || die '성공 응답을 검증하지 못한 엔드포인트가 있습니다. coverage.json을 확인하세요.'
+jq -e '.uncovered | length == 0' "$RUN_DIR/coverage.json" >/dev/null || die '성공 응답을 검증하지 못한 엔드포인트가 있습니다. coverage.json을 확인하세요.'
 printf '\n업무 API 성공 경로: %s/%s\n' \
     "$(jq -r '.successful' "$RUN_DIR/coverage.json")" "$(jq -r '.total' "$RUN_DIR/coverage.json")"

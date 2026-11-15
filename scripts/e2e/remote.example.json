@@ -1,0 +1,58 @@
+{
+  "baseUrl": "https://REPLACE_HOST/fixmyhome/api/v1",
+  "origin": "https://REPLACE_HOST",
+  "region": {
+    "city": "REPLACE_CITY",
+    "district": "REPLACE_DISTRICT",
+    "neighborhood": "REPLACE_NEIGHBORHOOD",
+    "regionId": "REPLACE_VERIFIED_REGION_ID"
+  },
+  "locationId": "REPLACE_REPRESENTATIVE_LOCATION_ID",
+  "workType": "REPLACE_VERIFIED_60_MINUTE_WORK_TYPE",
+  "photoPath": "./approved-photo.png",
+  "source": {
+    "title": "REPLACE_APPROVED_SOURCE_TITLE",
+    "reference": "REPLACE_APPROVED_SOURCE_REFERENCE",
+    "version": "REPLACE_APPROVED_SOURCE_VERSION",
+    "usageBasis": "REPLACE_APPROVED_USAGE_BASIS"
+  },
+  "case": {
+    "title": "REPLACE_APPROVED_CASE_TITLE",
+    "fields": ["PLUMBING"],
+    "initialSymptom": "REPLACE_APPROVED_INITIAL_SYMPTOM",
+    "confirmedCause": null,
+    "workDescription": "REPLACE_APPROVED_WORK_DESCRIPTION",
+    "parts": [],
+    "beforeMediaIds": [],
+    "afterMediaIds": [],
+    "dataType": "MOCK",
+    "source": {
+      "title": "REPLACE_APPROVED_SOURCE_TITLE",
+      "reference": "REPLACE_APPROVED_SOURCE_REFERENCE",
+      "version": "REPLACE_APPROVED_SOURCE_VERSION",
+      "usageBasis": "REPLACE_APPROVED_USAGE_BASIS"
+    }
+  },
+  "updatedCase": {
+    "title": "REPLACE_APPROVED_CASE_TITLE",
+    "fields": ["PLUMBING"],
+    "initialSymptom": "REPLACE_APPROVED_INITIAL_SYMPTOM",
+    "confirmedCause": null,
+    "workDescription": "REPLACE_APPROVED_UPDATED_WORK_DESCRIPTION",
+    "parts": [],
+    "beforeMediaIds": [],
+    "afterMediaIds": [],
+    "dataType": "MOCK",
+    "source": {
+      "title": "REPLACE_APPROVED_SOURCE_TITLE",
+      "reference": "REPLACE_APPROVED_SOURCE_REFERENCE",
+      "version": "REPLACE_APPROVED_SOURCE_VERSION",
+      "usageBasis": "REPLACE_APPROVED_USAGE_BASIS"
+    }
+  },
+  "failedDeletionJobId": null,
+  "ai": {
+    "expectedStatus": "SUCCEEDED",
+    "expectedErrorCode": null
+  }
+}

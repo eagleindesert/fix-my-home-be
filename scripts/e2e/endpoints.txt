@@ -1,4 +1,5 @@
 POST /auth/login
+POST /auth/signup
 POST /auth/logout
 GET /auth/me
 PATCH /auth/role

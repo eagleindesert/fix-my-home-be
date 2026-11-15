@@ -1,13 +1,15 @@
 """API 계약을 서비스에 연결한다. 전송 처리·트랜잭션은 main에서 공통 적용한다."""
 
 import copy
+import re
 
 from sqlalchemy import select
 from starlette.responses import JSONResponse, Response
 
+from app.admin import create_account
 from app.contracts import validate_type
 from app.db import Account, StoredFile, uid
-from app.errors import require
+from app.errors import invalid, require
 from app.media import normalize_image
 from app.pagination import page
 from app.security import Actor, new_session, require_actor, session_dto, verify_password
@@ -58,19 +60,52 @@ def media_response(ctx, media_id):
     return Response(ctx.files.read(file.key), media_type=file.mime, headers={"Content-Disposition": 'inline; filename="image.'+("png" if file.mime == "image/png" else "jpg")+'"'})
 
 
+def signup_account(ctx, body):
+    if not re.fullmatch(r"[A-Za-z0-9._-]{3,128}", body["loginId"]):
+        invalid("로그인 ID는 영문·숫자·마침표·밑줄·하이픈으로 3~128자여야 합니다.", "loginId")
+    if not 12 <= len(body["password"]) <= 128:
+        invalid("비밀번호는 12~128자여야 합니다.", "password")
+
+    region = None
+    if "regionId" in body:
+        if body["role"] != "TECHNICIAN":
+            invalid("활동 지역은 기사 가입에서만 지정할 수 있습니다.", "regionId")
+        region = next((row for row in ctx.references("REGION") if row.id == body["regionId"]), None)
+        require(region and region.data.get("representativeLocationId"), "INVALID_REFERENCE",
+                "공개 서비스 정보에 등록된 활동 지역을 선택하세요.", 422)
+
+    roles = ["USER", "TECHNICIAN"] if body["role"] == "TECHNICIAN" else ["USER"]
+    account = create_account(ctx.db, ctx.settings, body["loginId"], body["password"], roles)
+    if region:
+        tech = next(iter(ctx.find("TECHNICIAN", owner_id=account.id)))
+        ctx.save(tech, profile={**tech.data["profile"], "regionIds": [region.id]})
+        location = region.data["representativeLocationId"]
+        ctx.create("SCHEDULE", {
+            "availability": [], "externalVisits": [],
+            "departureLocationId": location, "returnLocationId": location,
+        }, owner_id=account.id, technician_id=tech.id)
+    return account
+
+
+def start_session(ctx, account, response):
+    if ctx.actor:
+        ctx.db.delete(ctx.actor.session)
+    token, session = new_session(ctx.db, account, ctx.settings, account.roles[0])
+    tech = next(iter(ctx.find("TECHNICIAN", owner_id=account.id)), None)
+    ctx.actor = Actor(account.id, session.role, tech.id if tech else None, session)
+    response.set_cookie(ctx.settings.session_cookie, token, max_age=ctx.settings.session_hours*3600,
+                        httponly=True, secure=ctx.settings.cookie_secure, samesite="lax", path="/")
+    return session_dto(ctx.db, ctx.actor)
+
+
 def dispatch(ctx, endpoint, params, query, body, files, response):
     method, path = endpoint["method"], endpoint["path"]
+    if path == "/auth/signup":
+        return start_session(ctx, signup_account(ctx, body), response)
     if path == "/auth/login":
         account = ctx.db.scalar(select(Account).where(Account.login_id == body["loginId"]))
         require(account and verify_password(body["password"], account.password_hash), "INVALID_CREDENTIALS", "로그인 정보를 확인하세요.", 401)
-        if ctx.actor:
-            ctx.db.delete(ctx.actor.session)
-        token, session = new_session(ctx.db, account, ctx.settings, account.roles[0])
-        tech = next(iter(ctx.find("TECHNICIAN", owner_id=account.id)), None)
-        ctx.actor = Actor(account.id, session.role, tech.id if tech else None, session)
-        response.set_cookie(ctx.settings.session_cookie, token, max_age=ctx.settings.session_hours*3600,
-                            httponly=True, secure=ctx.settings.cookie_secure, samesite="lax", path="/")
-        return session_dto(ctx.db, ctx.actor)
+        return start_session(ctx, account, response)
     if path == "/auth/logout":
         ctx.db.delete(ctx.actor.session)
         response.delete_cookie(ctx.settings.session_cookie, path="/", secure=ctx.settings.cookie_secure, httponly=True, samesite="lax")

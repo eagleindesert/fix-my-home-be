@@ -11,6 +11,80 @@ value() { jq -er "$1" "$RESPONSE_FILE"; }
 data() { jq -c '.data' "$RESPONSE_FILE"; }
 config_value() { jq -er "$1" "$CONFIG"; }
 
+choose_login_mode() {
+    [[ $LOGIN_MODE == choose ]] || return 0
+    local selection
+    printf '\n계정 준비 방식\n  1) 랜덤 계정 3개 회원가입\n  2) 기존 계정 3개 직접 입력\n' >&2
+    printf '전체 시나리오는 전용 기사 계정의 프로필과 일정을 변경합니다.\n' >&2
+    while :; do
+        printf '선택 [1/2]: ' >&2
+        IFS= read -r selection || die '계정 선택 입력이 종료되었습니다.'
+        case "$selection" in
+            1) LOGIN_MODE=random; return ;;
+            2) LOGIN_MODE=prompt; return ;;
+            *) printf '1 또는 2를 입력하세요.\n' >&2 ;;
+        esac
+    done
+}
+
+prompt_credentials() {
+    local actor=$1 label login_id= password=
+    case "$actor" in
+        user) label=사용자 ;;
+        other) label='다른 사용자' ;;
+        technician) label=기사 ;;
+        *) die '알 수 없는 로그인 계정 종류입니다.' ;;
+    esac
+    while [[ -z $login_id ]]; do
+        printf '%s 로그인 ID: ' "$label" >&2
+        IFS= read -r login_id || die '로그인 ID 입력이 종료되었습니다.'
+    done
+    while [[ -z $password ]]; do
+        printf '%s 비밀번호: ' "$label" >&2
+        if ! IFS= read -rs password; then
+            printf '\n' >&2
+            die '비밀번호 입력이 종료되었습니다.'
+        fi
+        printf '\n' >&2
+    done
+    # 민감한 값을 jq 인자나 환경변수로 전달하지 않는다.
+    printf '%s\0%s' "$login_id" "$password" |
+        jq -Rsc 'split("\u0000") | {loginId:.[0],password:.[1]}'
+}
+
+new_credentials() {
+    local actor=$1 suffix password
+    suffix=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
+    password=$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')
+    [[ ${#suffix} == 16 && ${#password} == 48 ]] || die '랜덤 계정 정보 생성에 실패했습니다.'
+    printf '%s\0%s' "e2e-$suffix-$actor" "$password" |
+        jq -Rsc 'split("\u0000") | {loginId:.[0],password:.[1]}'
+}
+
+register_account() {
+    local actor=$1 credentials=$2 role=USER body
+    if [[ $actor == technician ]]; then role=TECHNICIAN; fi
+    body=$(printf '%s' "$credentials" | jq -c --arg role "$role" --argjson region "$REGION" '
+        . + {role:$role} + if $role == "TECHNICIAN" then {regionId:$region.regionId} else {} end')
+    request "$actor" POST /auth/signup 201 "$body"
+    assert_json '.data.activeRole == "USER" and (.data.availableRoles | index("USER") != null)' '회원가입 후 사용자 세션'
+}
+
+check_signup() {
+    local credentials
+    credentials=$(new_credentials signup)
+    register_account anonymous "$credentials"
+}
+
+skip_success_endpoint() {
+    local endpoint=$1 reason=$2
+    jq --arg endpoint "$endpoint" --arg reason "$reason" \
+        '. + [{endpoint:$endpoint,reason:$reason}] | unique_by(.endpoint)' \
+        "$RUN_DIR/skipped.json" > "$RUN_DIR/skipped.tmp"
+    mv -- "$RUN_DIR/skipped.tmp" "$RUN_DIR/skipped.json"
+    printf 'SKIP 성공 경로: %s — %s\n' "$endpoint" "$reason"
+}
+
 assert_json() {
     local expression=$1 description=$2
     shift 2
@@ -88,13 +162,59 @@ request() {
 }
 
 login() {
-    local actor=$1 credentials
-    credentials=$(config_value ".accounts.$actor | tojson")
+    local actor=$1 credentials session login_id role=USER
+    case "$LOGIN_MODE" in
+        prompt) credentials=$(prompt_credentials "$actor") ;;
+        random)
+            credentials=$(new_credentials "$actor")
+            register_account "$actor" "$credentials"
+            ;;
+        config) credentials=$(config_value ".accounts.$actor | tojson") ;;
+        *) die '알 수 없는 로그인 방식입니다.' ;;
+    esac
+    login_id=$(printf '%s' "$credentials" | jq -r '.loginId')
     request "$actor" POST /auth/login 200 "$credentials"
+    unset credentials
     assert_json '.data.accountId | type == "string" and length > 0' '로그인 계정 ID'
     [[ -s $COOKIE_DIR/$actor ]] || die '세션 쿠키가 저장되지 않았습니다.'
     grep -Eiq '^set-cookie:.*; HttpOnly' "$HEADER_FILE" || die '세션 쿠키 HttpOnly 속성 누락'
     grep -Eiq '^set-cookie:.*; SameSite=lax' "$HEADER_FILE" || die '세션 쿠키 SameSite 속성 누락'
+    if [[ $actor == technician ]]; then role=TECHNICIAN; fi
+    assert_json '.data.availableRoles | index($role) != null' \
+        "계정에 필요한 역할이 없습니다: $role" --arg role "$role"
+    if [[ $(value '.data.activeRole') != "$role" ]]; then
+        request "$actor" PATCH /auth/role 200 "$(json --arg role "$role" '{role:$role}')"
+    fi
+    session=$(data)
+    case "$actor" in
+        user) SESSION_USER=$session ;;
+        other) SESSION_OTHER=$session ;;
+        technician) SESSION_TECHNICIAN=$session ;;
+    esac
+    jq --arg actor "$actor" --arg login "$login_id" --argjson session "$session" \
+        '.[$actor] = {loginId:$login,accountId:$session.accountId,availableRoles:$session.availableRoles}' \
+        "$RUN_DIR/accounts.json" > "$RUN_DIR/accounts.tmp"
+    mv -- "$RUN_DIR/accounts.tmp" "$RUN_DIR/accounts.json"
+}
+
+find_page_item() {
+    local actor=$1 path=$2 predicate=$3 description=$4
+    shift 4
+    local page_path=$path cursor separator='?' seen='|'
+    if [[ $path == *\?* ]]; then separator='&'; fi
+    while :; do
+        request "$actor" GET "$page_path" 200
+        if jq -e "$@" "any(.data.items[]; $predicate)" "$RESPONSE_FILE" >/dev/null; then
+            ASSERTIONS=$((ASSERTIONS + 1))
+            return
+        fi
+        cursor=$(jq -r '.data.nextCursor // empty' "$RESPONSE_FILE")
+        [[ -n $cursor ]] || die "$description: 목록에서 해당 자료를 찾을 수 없습니다."
+        [[ $seen != *"|$cursor|"* ]] || die "$description: 커서가 반복되었습니다."
+        seen="$seen$cursor|"
+        cursor=$(jq -rn --arg cursor "$cursor" '$cursor | @uri')
+        page_path="$path${separator}cursor=$cursor"
+    done
 }
 
 poll_job() {
@@ -152,11 +272,13 @@ create_delivery() {
 
 coverage() {
     jq -n --slurpfile endpoints "$RUN_DIR/endpoints.json" \
-        --slurpfile results "$RUN_DIR/results.jsonl" '
+        --slurpfile results "$RUN_DIR/results.jsonl" --slurpfile skipped "$RUN_DIR/skipped.json" '
         ($endpoints[0] | map(.method + " " + .path) | sort) as $expected |
         ([$results[] | select(.passed and .status >= 200 and .status < 300) | .endpoint] | unique) as $successful |
-        {total:($expected|length), successful:($expected - ($expected - $successful) | length),
-         missing:($expected - $successful),
+        ($expected - $successful) as $missing |
+        {total:($expected|length), successful:($expected - $missing | length),
+         missing:$missing, skipped:[$skipped[0][] | select(.endpoint as $endpoint | $missing | index($endpoint))],
+         uncovered:($missing - [$skipped[0][].endpoint]),
          expectedErrors:[$results[] | select(.passed and .status >= 400) | {endpoint,status}]}
     ' > "$RUN_DIR/coverage.json"
 }
@@ -172,12 +294,12 @@ finish() {
     rm -f -- "$RUN_DIR/request-body.json" "$HEADER_FILE"
     if [[ -f $RUN_DIR/endpoints.json ]]; then coverage || status=1; fi
     jq -n --argjson status "$status" --argjson requests "$CALL_COUNT" \
-        --argjson assertions "$ASSERTIONS" --arg lastRequest "$LAST_REQUEST" \
+        --argjson assertions "$ASSERTIONS" --arg lastRequest "$LAST_REQUEST" --arg loginMode "$LOGIN_MODE" \
         '{passed:($status==0), exitCode:$status, requests:$requests,
-          assertions:$assertions, lastRequest:$lastRequest}' > "$RUN_DIR/summary.json"
+          assertions:$assertions, lastRequest:$lastRequest, loginMode:$loginMode}' > "$RUN_DIR/summary.json"
     if (( status == 0 )); then
         rm -f -- "$RESPONSE_FILE"
-        printf '\n전체 E2E 성공: %s회 HTTP 호출, %s회 검증\n' "$CALL_COUNT" "$ASSERTIONS"
+        printf '\nE2E 시나리오 성공: %s회 HTTP 호출, %s회 검증\n' "$CALL_COUNT" "$ASSERTIONS"
     else
         printf '\nE2E 실패. 마지막 요청: %s\n' "$LAST_REQUEST" >&2
     fi
