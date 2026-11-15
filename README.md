@@ -190,8 +190,10 @@ HTTP 접근 로그에는 메서드, URI 경로, 상태 코드, 신뢰한 Nginx �
 
 ## 검증 범위
 
-프론트엔드 관점의 Bash E2E는 `bash scripts/e2e/run.sh --local --suite api`로 회원가입을 포함한 전체 80개 업무 API를 검사합니다(`api`가 기본값). `--suite scenarios`를 선택하면 기획서의 직접 연락·선택 경로·AI·경과 분석·예약 후 인계·정상 완료까지 추가 검증합니다. 준비된 테스트 서버에는 `--config`로 연결할 수 있습니다. 사전 준비와 실행 결과 형식은 [API E2E 안내](scripts/e2e/README.md)를 참고하세요.
+E2E는 `docker-compose.yaml`로 DB·마이그레이션·API·worker를 실행한 상태에서 `bash scripts/e2e/run.sh`로 시작합니다. 터미널에서 전체 API 검사(`api`)와 기획 흐름 검사(`scenarios`)를 선택할 수 있고, `--suite api` 또는 `--suite scenarios`로 바로 실행할 수도 있습니다. 호스트에서 컨테이너 API에 실제 HTTP 요청을 보내며 PostgreSQL과 별도 worker의 작업 완료를 확인합니다. API 메서드·경로·응답 상태와 시나리오별 검증 결과를 실시간으로 출력합니다. 실행기는 컨테이너를 시작·종료하거나 볼륨을 삭제하지 않습니다. 준비 방법, 검증 범위, 결과 파일과 테스트 자료 정리는 [Compose E2E 안내](scripts/e2e/README.md)를 참고하세요.
 
 테스트는 계약 경로, 권한, 업로드 원자성, 재전송, 비AI 예약 흐름, 작업 상태, 버전 경합, 삭제, AI 실패·deadline, 마스킹·PDF, 스키마 차이와 배포 스크립트를 다룹니다. CI에는 PostgreSQL 테스트와 QEMU 없는 ARM 이미지 빌드를 추가했습니다.
+
+조사 당시 LiteLLM의 최신 정식 릴리스에 JSON 출력 패치가 빠져 발생한 AI 작업 실패와 함수 호출 방식으로 우회한 과정은 [LiteLLM 구조화 출력 트러블슈팅](docs/etc/LiteLLM-구조화-출력-트러블슈팅.md)에 정리했습니다. 재현용 curl 명령과 확인한 릴리스별 차이도 포함합니다.
 
 실제 ARM VM 기동, Docker Hub pull, 호스트 Nginx 연동, 실제 모델 평가와 FE의 AC 63개 통합 검수는 해당 환경·자료가 필요합니다. 코드 테스트 통과를 이 검수들의 합격으로 간주하지 않습니다. 평가 실행 방법은 [AI 평가 안내](docs/AI-평가-실행.md)를 참고하세요.

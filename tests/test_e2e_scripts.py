@@ -1,237 +1,309 @@
-"""Bash 시나리오 전체를 실제 앱/worker에 연결한다. TCP 사용은 필요하지 않다.
+"""실행기 단위 테스트: Docker와 HTTP 실행을 대체하여 제어 흐름만 확인한다.
 
-curl만 FIFO 어댑터로 교체하고 요청·파일·역할·응답은 FastAPI에 그대로 전달한다.
-실제 curl/TCP/TLS 동작은 scripts/e2e/run.sh --local 또는 --config로 확인한다.
+이 테스트의 성공은 Docker E2E 성공을 의미하지 않는다. 실제 E2E 검증은
+docker-compose.yaml을 실행한 뒤 scripts/e2e/run.sh로 별도로 수행한다.
 """
 
 import json
-import os
-import shutil
-import subprocess
-import threading
-from http.cookiejar import MozillaCookieJar
-from pathlib import Path
-from urllib.parse import urlsplit
+import stat
+from types import SimpleNamespace
 
 import pytest
 
-from app.contract_data import ENDPOINTS
-from app.errors import DomainError
-from app.worker import run_once
-from conftest import APIClient
-from scripts.e2e.fixtures import prepare, write_json
-from scripts.e2e.local import diagnosis, find_font
-
-ROOT = Path(__file__).resolve().parents[1]
+from scripts.e2e import runner
 
 
-@pytest.mark.parametrize("arguments", [["--suite", "unknown"], ["--suite"]])
-def test_invalid_suite_fails_before_starting_server(tmp_path, arguments):
-    result = subprocess.run(
-        ["bash", str(ROOT / "scripts/e2e/run.sh"), "--local", *arguments,
-         "--output", str(tmp_path / "results")],
-        capture_output=True, text=True, timeout=10,
+class FakeDocker:
+    """Docker 메타데이터와 fixture 실행 결과만 제공하는 실행기용 대역."""
+
+    def __init__(self):
+        self.calls = []
+        self.fail_actions = set()
+        self.missing_service = None
+        self.environment = {
+            "environment": "development", "databaseFingerprint": "test-fingerprint",
+            "publicOrigin": "http://localhost:8000", "rootPath": "",
+            "aiExpectedStatus": "FAILED", "aiConfigFingerprint": "test-ai-fingerprint",
+            "storageDir": "/var/lib/fmh/media", "databaseServerAddress": "172.30.0.2",
+        }
+        self.worker_environment = dict(self.environment)
+        self.metadata = {}
+        for service in ("db", "migrate", "be", "worker"):
+            self.metadata[service] = {
+                "status": "exited" if service == "migrate" else "running",
+                "health": "healthy" if service in ("db", "be") else None,
+                "exitCode": 0,
+                "image": "sha256:database" if service == "db" else "sha256:application",
+                "configFiles": str(runner.ROOT / "docker-compose.yaml"),
+                "command": ["python", "-m", "app.worker"] if service == "worker" else [],
+                "mounts": [{
+                    "Type": "volume", "Destination": "/var/lib/fmh/media",
+                    "Name": "test-media-data", "RW": True,
+                }] if service in ("be", "worker") else [],
+            }
+
+    def call(self, arguments, *, input_text=None):
+        self.calls.append(list(arguments))
+        command = arguments[0]
+        if command == "info":
+            return "29.9.3"
+        if command == "ps":
+            label = next(value for value in arguments if value.startswith(
+                "label=com.docker.compose.service=",
+            ))
+            service = label.rsplit("=", 1)[1]
+            return "" if service == self.missing_service else service + "-container"
+        if command == "inspect":
+            if "NetworkSettings" in arguments[2]:
+                return "172.30.0.2"
+            return json.dumps(self.metadata[arguments[-1].removesuffix("-container")])
+        if command == "port":
+            assert arguments[1:] == ["be-container", "8000/tcp"]
+            return "127.0.0.1:18000"
+        if command == "exec":
+            assert input_text and "def prepare(" in input_text
+            assert "--no-project" in arguments and "--no-env-file" in arguments
+            action, run_id = arguments[-2:]
+            if action in self.fail_actions:
+                raise runner.CheckError("fixture " + action + " failed")
+            if action == "check":
+                return json.dumps(self.worker_environment if arguments[2] == "worker-container"
+                                  else self.environment)
+            if action == "prepare":
+                return json.dumps({"runId": run_id, "password": "private-test-password"})
+            if action == "cleanup":
+                return json.dumps({"status": "cleaned", "runId": run_id})
+        raise AssertionError(f"예상하지 않은 Docker 호출: {arguments!r}")
+
+    @property
+    def actions(self):
+        return [call[-2] for call in self.calls if call[0] == "exec"]
+
+
+@pytest.fixture
+def execution(monkeypatch, tmp_path):
+    docker = FakeDocker()
+    state = SimpleNamespace(
+        docker=docker, output=tmp_path / "results", http_calls=[], http_exit=0,
+        interrupt=False, config_path=None, http_failure=None,
     )
-    assert result.returncode != 0 and "--suite" in result.stderr
-    assert not (tmp_path / "results").exists()
+    monkeypatch.setattr(runner, "Docker", lambda: docker)
+    monkeypatch.setattr(runner.sys.stdin, "isatty", lambda: False)
+
+    def run_http(args, config_path, result_dir, base_url, emit):
+        state.config_path = config_path
+        assert stat.S_IMODE(config_path.stat().st_mode) == 0o600
+        assert stat.S_IMODE(result_dir.stat().st_mode) == 0o700
+        assert json.loads(config_path.read_text())["password"] == "private-test-password"
+        state.http_calls.append({"suite": args.suite, "base_url": base_url})
+        if state.interrupt:
+            raise KeyboardInterrupt
+        if state.http_failure:
+            (result_dir / "summary.json").write_text(json.dumps({
+                "passed": False, "failure": state.http_failure,
+            }))
+        emit("HTTP 실행 대역: 실제 네트워크 검증 아님")
+        return state.http_exit
+
+    monkeypatch.setattr(runner, "run_http", run_http)
+    state.run = lambda *args: runner.main(["--output", str(state.output), *args])
+    return state
 
 
-def curl_request(arguments, clients, app):
-    """이 시나리오에서 사용하는 curl 인자를 HTTP 요청으로 옮긴다."""
-    method, headers, fields, files = "GET", {}, {}, []
-    body = None
-    cookie = cookie_output = output = header_file = url = None
-    index = 0
-    while index < len(arguments):
-        argument = arguments[index]
-        index += 1
-        if argument in ("-q", "--silent", "--show-error", "--globoff"):
-            continue
-        if not argument.startswith("-"):
-            url = argument
-            continue
-        value = arguments[index]
-        index += 1
-        if argument == "--request":
-            method = value
-        elif argument == "--header":
-            key, content = value.split(":", 1)
-            headers[key] = content.strip()
-        elif argument == "--output":
-            output = value
-        elif argument == "--dump-header":
-            header_file = value
-        elif argument == "--cookie":
-            cookie = value
-        elif argument == "--cookie-jar":
-            cookie_output = value
-        elif argument == "--data-binary":
-            assert value.startswith("@")
-            body = Path(value[1:]).read_bytes()
-        elif argument == "--form-string":
-            key, content = value.split("=", 1)
-            fields[key] = content
-        elif argument == "--form":
-            key, content = value.split("=@", 1)
-            source, filename, mime = content.split(";")
-            files.append((key, (
-                filename.removeprefix("filename="),
-                Path(source.strip('"')).read_bytes(), mime.removeprefix("type="),
-            )))
-        else:
-            assert argument in (
-                "--write-out", "--connect-timeout", "--max-time",
-            ), argument
-    assert url and output and header_file
-    if cookie not in clients:
-        clients[cookie] = APIClient(app)
-        clients[cookie].__enter__()
-    client = clients[cookie]
-    client.cookies.clear()
-    if cookie is not None:
-        assert cookie_output == cookie
-        stored_cookies = MozillaCookieJar(cookie)
-        if Path(cookie).exists():
-            stored_cookies.load(ignore_discard=True, ignore_expires=True)
-            client.cookies.update(stored_cookies)
-    parsed = urlsplit(url)
-    path = parsed.path + ("?" + parsed.query if parsed.query else "")
-    response = client.request(
-        method, path, headers=headers, content=body,
-        data=fields or None, files=files or None, follow_redirects=False,
-    )
-    if cookie_output:
-        stored_cookies = MozillaCookieJar(cookie_output)
-        for item in client.cookies.jar:
-            stored_cookies.set_cookie(item)
-        stored_cookies.save(ignore_discard=True, ignore_expires=True)
-    Path(output).write_bytes(response.content)
-    Path(header_file).write_text(
-        f"HTTP/1.1 {response.status_code}\r\n"
-        + "".join(f"{key}: {value}\r\n" for key, value in response.headers.items()),
-    )
-    return response.status_code
+@pytest.mark.parametrize("arguments", [["--suite", "unknown"], ["--suite"],
+                                       ["--http-timeout", "0"], ["--poll-timeout", "nan"]])
+def test_invalid_arguments_fail_before_docker_access_or_output_creation(execution, arguments):
+    with pytest.raises(SystemExit) as stopped:
+        execution.run(*arguments)
+    assert stopped.value.code == 2
+    assert execution.docker.calls == []
+    assert not execution.output.exists()
 
 
-@pytest.mark.parametrize("ai_mode", ["success", "expected_failure", "unexpected_failure"])
-@pytest.mark.parametrize("suite", ["api", "scenarios"])
-def test_bash_scenarios_cover_every_endpoint(environment, tmp_path, ai_mode, suite):
-    if any(shutil.which(command) is None for command in ("bash", "jq", "curl")):
-        pytest.skip("Bash E2E 검증에는 bash, jq, curl이 필요합니다.")
-    settings, factory, app = environment
-    try:
-        settings.pdf_font = find_font()
-    except RuntimeError:
-        pytest.skip("PDF 한글 폰트가 필요합니다.")
-    fixtures = tmp_path / "fixtures"
-    config = prepare(settings, factory, fixtures, "http://testserver/v1")
-    if ai_mode == "expected_failure":
-        config["ai"] = {"expectedStatus": "FAILED", "expectedErrorCode": "AI_NOT_CONFIGURED"}
-        write_json(fixtures / "config.json", config)
+def test_help_does_not_require_docker(execution, capsys):
+    with pytest.raises(SystemExit) as stopped:
+        execution.run("--help")
+    assert stopped.value.code == 0
+    assert "--suite" in capsys.readouterr().out
+    assert execution.docker.calls == []
 
-    def provider(*args):
-        if ai_mode == "success":
-            return diagnosis(*args)
-        raise DomainError("AI_NOT_CONFIGURED", "테스트용 AI 미설정 상태", 503)
-    incoming, outgoing = tmp_path / "incoming", tmp_path / "outgoing"
-    os.mkfifo(incoming)
-    os.mkfifo(outgoing)
-    binaries = tmp_path / "bin"
-    binaries.mkdir()
-    proxy = binaries / "curl"
-    proxy.write_text(
-        '#!/usr/bin/env bash\nset -euo pipefail\n'
-        "jq -cn --args '$ARGS.positional' -- \"$@\" > \"$E2E_RPC_IN\"\n"
-        'IFS= read -r status < "$E2E_RPC_OUT"\n'
-        'printf "%s" "$status"\n'
-    )
-    proxy.chmod(0o700)
-    failures = []
-    stopped = threading.Event()
-    clients = {}
 
-    def serve():
-        try:
-            while not stopped.is_set():
-                with incoming.open() as stream:
-                    payload = stream.read()
-                if not payload:
-                    continue
-                arguments = json.loads(payload)
-                if arguments is None:
-                    break
-                try:
-                    status = curl_request(arguments, clients, app)
-                    # 실제 worker를 통해 비동기 작업을 완료한다. AI 제공자만 고정한다.
-                    # 첫 AI polling은 QUEUED를 읽도록 해 대기 분기도 실행한다.
-                    if not ("POST" in arguments and arguments[-1].endswith("/ai-jobs")):
-                        while run_once(factory, settings, provider=provider):
-                            pass
-                except Exception as error:
-                    failures.append(error)
-                    status = 599
-                with outgoing.open("w") as stream:
-                    stream.write(f"{status}\n")
-        finally:
-            for client in clients.values():
-                client.__exit__(None, None, None)
+@pytest.mark.parametrize("arguments,suite", [([], "api"), (["--suite", "api"], "api"),
+                                             (["--suite", "scenarios"], "scenarios")])
+def test_runner_passes_selected_suite_and_cleans_private_material(execution, capsys, arguments, suite):
+    assert execution.run(*arguments) == 0
+    assert execution.http_calls == [{"suite": suite, "base_url": "http://localhost:18000"}]
+    assert execution.docker.actions == ["check", "check", "prepare", "cleanup"]
+    assert execution.config_path is not None and not execution.config_path.exists()
+    report = json.loads((execution.output / "run-result.json").read_text())
+    assert report["status"] == "PASSED" and report["cleanup"] == "PASSED"
+    assert report["exitCode"] == 0 and report["suite"] == suite
+    captured = capsys.readouterr()
+    assert "private-test-password" not in captured.out + captured.err
+    for path in execution.output.iterdir():
+        assert "private-test-password" not in path.read_text()
+    assert all(call[0] in {"info", "ps", "inspect", "port", "exec"}
+               for call in execution.docker.calls)
 
-    thread = threading.Thread(target=serve, daemon=True)
-    thread.start()
-    child_env = {
-        key: value for key, value in os.environ.items()
-        if not key.startswith("E2E_")
-    }
-    child_env.update({
-        "PATH": str(binaries) + os.pathsep + os.environ["PATH"],
-        "E2E_RPC_IN": str(incoming), "E2E_RPC_OUT": str(outgoing),
-    })
-    # API 성공 검사는 옵션 생략 시 기존 api 모드가 선택되는지도 확인한다.
-    suite_args = [] if (suite, ai_mode) == ("api", "success") else ["--suite", suite]
-    try:
-        result = subprocess.run(
-            ["bash", str(ROOT / "scripts/e2e/run.sh"), "--config", str(fixtures / "config.json"),
-             *suite_args, "--output", str(tmp_path / "results")],
-            cwd=tmp_path, env=child_env, capture_output=True, text=True, timeout=240,
-        )
-    finally:
-        stopped.set()
-        # reader가 기다리는 중에도 TCP 없이 종료한다.
-        try:
-            descriptor = os.open(incoming, os.O_WRONLY | os.O_NONBLOCK)
-        except OSError:
-            descriptor = None
-        if descriptor is not None:
-            os.write(descriptor, b"null\n")
-            os.close(descriptor)
-        thread.join(timeout=10)
-    assert not failures, failures
-    run = next((tmp_path / "results").glob("run.*"))
-    last = run / "last-response"
-    diagnostic = last.read_text(errors="replace") if last.exists() else ""
-    assert not (run / "cookies").exists()
-    assert not (run / "response-headers").exists()
-    assert not (run / "request-body.json").exists()
-    summary = json.loads((run / "summary.json").read_text())
-    assert summary["suite"] == suite
-    if ai_mode == "unexpected_failure":
-        assert result.returncode != 0 and not summary["passed"]
-        assert "예상 종료 상태 SUCCEEDED, 실제 FAILED" in result.stderr
-        assert json.loads(diagnostic)["data"]["error"]["code"] == "AI_NOT_CONFIGURED"
-        assert summary["scenarios"][-1]["passed"] is False
-        return
-    assert result.returncode == 0, result.stdout[-6000:] + result.stderr + diagnostic
-    report = json.loads((run / "coverage.json").read_text())
-    assert report["successful"] == report["total"] == len(ENDPOINTS)
-    assert report["missing"] == []
-    assert summary["passed"] and summary["assertions"] > len(ENDPOINTS)
-    assert summary["ai"]["successPathsVerified"] == (ai_mode == "success")
-    completed = {scenario["name"] for scenario in summary["scenarios"] if scenario["passed"]}
-    plan_flows = {
-        "optional_paths", "route_constraints", "completion_and_handover",
-        "ai_dialogue", "case_matching", "photo_progression",
-    }
-    if suite == "scenarios":
-        assert plan_flows <= completed
+
+def test_explicit_project_and_url_are_forwarded(execution):
+    assert execution.run("--project", "separate-e2e", "--base-url", "http://127.0.0.1:19000/") == 0
+    assert execution.http_calls[0]["base_url"] == "http://127.0.0.1:19000"
+    selectors = [call for call in execution.docker.calls if call[0] == "ps"]
+    assert all("label=com.docker.compose.project=separate-e2e" in call for call in selectors)
+    assert not any(call[0] == "port" for call in execution.docker.calls)
+
+
+@pytest.mark.parametrize("answer,suite", [("", "api"), ("2", "scenarios")])
+def test_terminal_menu_selects_suite(execution, monkeypatch, answer, suite):
+    monkeypatch.setattr(runner.sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda prompt: answer)
+    assert execution.run() == 0
+    assert execution.http_calls[0]["suite"] == suite
+
+
+@pytest.mark.parametrize("service,field,value", [
+    ("be", "configFiles", "/project/docker-compose-deployment.yaml"),
+    ("worker", "status", "exited"), ("db", "health", "unhealthy"),
+    ("migrate", "exitCode", 1), ("migrate", "status", "running"),
+    ("worker", "command", ["python", "-m", "unrelated"]),
+    ("worker", "image", "sha256:different-application"), ("worker", "mounts", []),
+])
+def test_incorrect_stack_stops_before_preparing_data(execution, service, field, value):
+    execution.docker.metadata[service][field] = value
+    assert execution.run() == 1
+    assert execution.docker.actions == []
+    assert execution.http_calls == []
+    report = json.loads((execution.output / "run-result.json").read_text())
+    assert report["status"] == "FAILED" and report["cleanup"] == "NOT_STARTED"
+
+
+def test_missing_worker_stops_before_preparing_data(execution):
+    execution.docker.missing_service = "worker"
+    assert execution.run() == 1
+    assert execution.docker.actions == []
+    assert execution.http_calls == []
+
+
+def test_different_api_and_worker_database_stops_before_preparing_data(execution):
+    execution.docker.worker_environment["databaseFingerprint"] = "different-database"
+    assert execution.run() == 1
+    assert execution.docker.actions == ["check", "check"]
+    assert execution.http_calls == []
+
+
+@pytest.mark.parametrize("field,value", [
+    ("databaseServerAddress", "192.0.2.3"), ("storageDir", "/tmp/separate-storage"),
+])
+def test_matching_app_settings_must_still_use_compose_database_and_storage(execution, field, value):
+    execution.docker.environment[field] = value
+    execution.docker.worker_environment[field] = value
+    assert execution.run() == 1
+    assert execution.docker.actions == ["check", "check"]
+    assert execution.http_calls == []
+
+
+@pytest.mark.parametrize("database_address,expected_exit", [
+    ("172.30.0.2/32", 0),
+    ("172.30.0.2/24", 0),
+    ("172.30.0.3/24", 1),
+    ("192.0.2.3/32", 1),
+    (None, 1),
+    ("", 1),
+    ("invalid-address", 1),
+])
+def test_database_identity_compares_host_address_without_netmask(
+    execution, database_address, expected_exit,
+):
+    # PostgreSQL의 inet→text 결과는 /32를 포함한다. Docker는 bare IP를 반환한다.
+    # 같은 서브넷의 다른 호스트를 허용하지 않고, 호스트 자체의 동일성을 비교한다.
+    execution.docker.environment["databaseServerAddress"] = database_address
+    execution.docker.worker_environment["databaseServerAddress"] = database_address
+
+    assert execution.run() == expected_exit
+
+    if expected_exit == 0:
+        assert len(execution.http_calls) == 1
+        assert execution.docker.actions == ["check", "check", "prepare", "cleanup"]
     else:
-        assert completed.isdisjoint(plan_flows)
+        assert execution.http_calls == []
+        assert execution.docker.actions == ["check", "check"]
+
+
+def test_partial_prepare_failure_still_attempts_cleanup(execution):
+    execution.docker.fail_actions.add("prepare")
+    assert execution.run() == 1
+    assert execution.docker.actions == ["check", "check", "prepare", "cleanup"]
+    assert execution.http_calls == []
+    report = json.loads((execution.output / "run-result.json").read_text())
+    assert report["status"] == "FAILED" and report["cleanup"] == "PASSED"
+
+
+@pytest.mark.parametrize("http_exit,cleanup_failure,expected", [
+    (17, False, 17), (0, True, 1), (17, True, 17), (-15, False, 143),
+])
+def test_failure_exit_codes_and_cleanup_are_preserved(execution, http_exit, cleanup_failure, expected):
+    execution.http_exit = http_exit
+    if cleanup_failure:
+        execution.docker.fail_actions.add("cleanup")
+    assert execution.run() == expected
+    assert execution.docker.actions[-1] == "cleanup"
+    assert not execution.config_path.exists()
+    report = json.loads((execution.output / "run-result.json").read_text())
+    assert report["status"] == "FAILED" and report["exitCode"] == expected
+    assert report["cleanup"] == ("FAILED" if cleanup_failure else "PASSED")
+
+
+def test_interrupt_cleans_fixture_and_credentials(execution):
+    execution.interrupt = True
+    assert execution.run() == 130
+    assert execution.docker.actions[-1] == "cleanup"
+    assert not execution.config_path.exists()
+    report = json.loads((execution.output / "run-result.json").read_text())
+    assert report["error"] == "INTERRUPTED" and report["exitCode"] == 130
+
+
+def test_http_failure_reason_is_repeated_after_cleanup(execution, capsys):
+    execution.http_exit = 1
+    execution.http_failure = "Worker job expected SUCCEEDED; got FAILED; errorCode=AI_INVALID_OUTPUT"
+    assert execution.run() == 1
+    report = json.loads((execution.output / "run-result.json").read_text())
+    assert report["error"] == execution.http_failure
+    assert report["cleanup"] == "PASSED"
+    console = capsys.readouterr().out
+    assert "[실패 원인] " + execution.http_failure in console
+    assert console.index("[PASS] 테스트 자료 정리 완료") < console.index("[실패 원인]")
+
+
+def test_keep_data_retains_fixture_but_removes_credentials(execution):
+    assert execution.run("--keep-data") == 0
+    assert execution.docker.actions == ["check", "check", "prepare"]
+    assert not execution.config_path.exists()
+    report = json.loads((execution.output / "run-result.json").read_text())
+    assert report["cleanup"] == "KEPT"
+
+
+def test_existing_results_are_not_overwritten(execution):
+    execution.output.mkdir()
+    previous = execution.output / "summary.json"
+    previous.write_text("previous run")
+    assert execution.run() == 1
+    assert previous.read_text() == "previous run"
+    assert execution.docker.calls == []
+
+
+def test_output_file_is_rejected_without_overwrite(execution):
+    execution.output.write_text("existing file")
+    assert execution.run() == 1
+    assert execution.output.read_text() == "existing file"
+    assert execution.docker.calls == []
+
+
+def test_docker_errors_do_not_expose_raw_stderr(monkeypatch):
+    monkeypatch.setattr(runner.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(
+        returncode=1, stdout="", stderr="postgresql://admin:private-test-password@db/fmh",
+    ))
+    with pytest.raises(runner.CheckError) as failed:
+        runner.Docker().call(["exec", "be-container", "command"])
+    assert "private-test-password" not in str(failed.value)
+    assert "exit 1" in str(failed.value)

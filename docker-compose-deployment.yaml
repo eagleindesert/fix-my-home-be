@@ -42,6 +42,8 @@ services:
     image: postgres:17-bookworm
     platform: ${IMAGE_PLATFORM:-linux/arm64}
     restart: unless-stopped
+    ports:
+      - "5434:5432"
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-fmh}
       POSTGRES_USER: ${POSTGRES_USER:-admin}
