@@ -7,7 +7,25 @@ from app.contract_data import ENDPOINTS, ENUM_DESCRIPTIONS, ENUMS, SCHEMA_DESCRI
 from app.contracts import type_schema
 from app.errors import DomainError
 
-API_DESCRIPTION = """요구사항 v1.7 · FE·BE 분업 v1.4 · API v1.1 기준입니다. 기본 경로는 `/v1`입니다.
+API_DESCRIPTION = """**Base URL:** [https://torysv.kro.kr/fixmyhome/api/v1](https://torysv.kro.kr/fixmyhome/api/v1)
+
+**Swagger UI:** [https://torysv.kro.kr/fixmyhome/api/docs](https://torysv.kro.kr/fixmyhome/api/docs)
+
+**상태 확인:** [https://torysv.kro.kr/fixmyhome/api/health/ready](https://torysv.kro.kr/fixmyhome/api/health/ready)
+
+**인증 방식:** 브라우저 쿠키 기반 세션 인증 (HttpOnly 세션 쿠키)
+
+**Last Updated:** 2026-11-16
+
+🔑 **인증:** 인증이 필요한 API는 이 Swagger UI에서 로그인(`POST /v1/auth/login`)한 뒤
+호출할 수 있습니다. 브라우저가 발급받은 HttpOnly 세션 쿠키를 이후 요청에 자동으로 보내므로
+Authorize 창에 인증 값을 직접 입력하지 않습니다.
+
+📌 **안내:** 외부 API 요청은 위 Base URL에 `/auth/login` 같은 상대 경로를 붙여 호출합니다.
+예를 들어 로그인 주소는 `https://torysv.kro.kr/fixmyhome/api/v1/auth/login`입니다.
+Swagger UI에 표시된 `/v1/...` 경로에는 **Try it out** 실행 시 공개 접두사 `/fixmyhome/api`가
+자동 적용됩니다. 요구사항 v1.7 · FE·BE 분업 v1.4 · API v1.1을 기준으로 하며,
+상세 요청·응답 스키마, 파라미터, 헤더, 상태 코드와 처리 조건은 각 API를 펼쳐 확인할 수 있습니다.
 
 ### 인증과 실행 순서
 

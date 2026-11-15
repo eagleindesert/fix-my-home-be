@@ -26,6 +26,8 @@ uv run pytest -q
 
 애플리케이션은 `.env`를 직접 읽지 않습니다. 로컬 Python 실행에는 환경변수를 전달하고, 컨테이너 실행에는 Compose가 `.env`를 읽습니다. `FMH_TEST_POSTGRES_URL`을 테스트 전용 PostgreSQL에 지정하면 실제 DB 경합·부분 유일 인덱스 테스트도 실행합니다. 이 테스트는 임시 스키마를 생성한 뒤 제거합니다.
 
+Windows pgAdmin에서 WSL의 로컬 PostgreSQL 컨테이너를 조회할 때는 `127.0.0.1:5432`를 사용합니다. `localhost` 접속 시 `Obtaining connection` 단계가 약 5초 지연됐고, IPv4 주소를 직접 지정해 해결한 과정은 [pgAdmin WSL 연결 지연 트러블슈팅](docs/etc/pgAdmin-WSL-연결-지연-트러블슈팅.md)에 정리했습니다.
+
 ## Swagger UI와 API 명세
 
 서버 실행 후 Swagger UI에서 API를 확인하고 호출할 수 있습니다. Python 직접 실행과 로컬 Compose는 [localhost:8000/docs](http://localhost:8000/docs), 배포 Compose는 배포 호스트의 [localhost:8002/docs](http://localhost:8002/docs)를 사용합니다. FastAPI 내부 경로에는 `/api`를 붙이지 않습니다.
