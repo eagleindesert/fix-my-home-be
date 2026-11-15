@@ -28,11 +28,11 @@ uv run pytest -q
 
 ## Swagger UI와 API 명세
 
-서버 실행 후 Swagger UI에서 API를 확인하고 호출할 수 있습니다. Python 직접 실행은 [localhost:8000](http://localhost:8000/api/docs), 로컬 Compose는 [localhost:8002](http://localhost:8002/api/docs)를 사용합니다. 운영에서는 같은 도메인의 `/api/docs`에 접속합니다. OpenAPI JSON은 `/api/openapi.json`이며 호스트 Nginx의 `/api/` 포워딩 설정으로 함께 제공됩니다.
+서버 실행 후 Swagger UI에서 API를 확인하고 호출할 수 있습니다. Python 직접 실행과 로컬 Compose는 [localhost:8000](http://localhost:8000/api/docs), 배포 Compose는 배포 호스트의 [localhost:8002](http://localhost:8002/api/docs)를 사용합니다. 운영에서는 같은 도메인의 `/api/docs`에 접속합니다. OpenAPI JSON은 `/api/openapi.json`이며 호스트 Nginx의 `/api/` 포워딩 설정으로 함께 제공됩니다.
 
 79개 API를 12개 업무 분류로 묶고 검색 필터를 제공합니다. 각 API에는 용도·권한·선행 조건, 종류별 처리 조건, 요청 필드와 DTO, Enum의 의미, 성공 응답·파일 형식, 상태 코드별 오류 설명이 표시됩니다. `Idempotency-Key`의 큰따옴표 포함 예시와 multipart `metadata`의 JSON 문자열 예시도 확인할 수 있습니다.
 
-사전 발급 계정으로 `POST /api/v1/auth/login`의 **Try it out**을 먼저 실행합니다. 브라우저가 받은 HttpOnly 쿠키로 이후 요청을 인증하므로 Authorize에 쿠키를 직접 입력하지 않습니다. 기사 API를 호출하려면 `PATCH /api/v1/auth/role`로 허용된 기사 역할로 전환합니다. Swagger UI의 접속 출처와 `FMH_PUBLIC_ORIGIN`을 일치시키고 운영에서는 HTTPS를 사용합니다. 로컬 Compose는 `FMH_LOCAL_ORIGIN`을 이 설정에 전달합니다.
+사전 발급 계정으로 `POST /api/v1/auth/login`의 **Try it out**을 먼저 실행합니다. 브라우저가 받은 HttpOnly 쿠키로 이후 요청을 인증하므로 Authorize에 쿠키를 직접 입력하지 않습니다. 기사 API를 호출하려면 `PATCH /api/v1/auth/role`로 허용된 기사 역할로 전환합니다. Swagger UI의 접속 출처와 `FMH_PUBLIC_ORIGIN`을 일치시키고 운영에서는 HTTPS를 사용합니다. 로컬 Compose의 허용 출처는 `http://localhost:8000`으로 지정되어 있습니다.
 
 전송 계약과 엔드포인트 설명의 원문은 [API 명세서](docs/API명세서.md)입니다. 원문 수정 후 다음 명령으로 `app/contract_data.py`를 갱신합니다. 생성한 상수는 이미지에서 바이트코드로 제공되므로 실행 서버에 Markdown 원본이 필요하지 않습니다. Swagger 공통 사용 안내·표시 옵션은 `app/openapi.py`에서 관리합니다.
 
@@ -80,7 +80,9 @@ docker compose -f docker-compose.yaml up -d --build
 ./scripts/build-push.sh v0.1.0 --platform linux/amd64
 ```
 
-`docker-compose.yaml`은 배포 Compose의 DB·마이그레이션·API·worker 설정을 상속하고 로컬 빌드와 개발 환경 설정을 적용합니다. `build-start.sh`는 이 파일을 대상으로 `docker compose up -d --build`를 실행합니다. 루트에서는 `docker compose up -d --build`만으로도 파일을 자동 선택합니다. `LOCAL_IMAGE_TAG` 기본값은 `local`, `LOCAL_IMAGE_PLATFORM` 기본값은 `linux/amd64`이며 ARM 개발 호스트에서는 `linux/arm64`로 지정할 수 있습니다. 로컬 HTTP 쿠키를 사용하고 `FMH_LOCAL_ORIGIN` 기본값은 `http://localhost:8002`입니다. 포트를 바꾸면 출처의 포트도 맞춥니다. 이 값들은 배포용 `IMAGE_TAG`·`IMAGE_PLATFORM`·운영 쿠키 설정과 구분됩니다.
+`docker-compose.yaml`은 배포 Compose의 DB·마이그레이션·API·worker 설정을 상속하고 로컬 빌드와 개발 환경 설정을 적용합니다. `build-start.sh`는 이 파일을 대상으로 `docker compose up -d --build`를 실행합니다. 루트에서는 `docker compose up -d --build`만으로도 파일을 자동 선택합니다. `LOCAL_IMAGE_TAG` 기본값은 `local`, `LOCAL_IMAGE_PLATFORM` 기본값은 `linux/amd64`이며 ARM 개발 호스트에서는 `linux/arm64`로 지정할 수 있습니다. 로컬 HTTP 쿠키를 사용하고 공개 포트와 허용 출처는 이 Compose 파일에서 각각 `8000`, `http://localhost:8000`으로 지정합니다. 이 값들은 배포용 `IMAGE_TAG`·`IMAGE_PLATFORM`·운영 쿠키 설정과 구분됩니다.
+
+로컬의 `ports: !override`는 상속한 배포 포트 목록을 교체하므로 로컬에서 배포용 `8002`가 함께 열리지 않습니다. [포트 목록 교체 문법](https://docs.docker.com/reference/compose-file/merge/#replace-value)은 Docker Compose 2.24.4 이상에서 지원합니다.
 
 기본 이미지는 `eagleindesert/fix-my-home-be`입니다. `IMAGE_NAME`으로 변경할 수 있습니다. 두 빌드 스크립트는 각 실행 전용 Buildx builder를 `restart-policy=no`로 만들고 성공·실패 후 정지·제거합니다. `build-start.sh`는 `BUILDX_BUILDER`와 `COMPOSE_BAKE=true`로 해당 builder에 [Compose 빌드를 위임](https://docs.docker.com/compose/how-tos/dependent-images/#build-with-bake)하므로 Bake 위임을 지원하는 Docker Compose와 Buildx가 필요합니다. CLI에서 직접 실행할 때는 현재 Docker builder 설정을 사용합니다.
 
@@ -112,7 +114,7 @@ docker compose -f docker-compose-deployment.yaml up -d
 
 버전 변경은 여러 줄 값·빈 값·주석을 보존하며 이미지 선택 설정만 수정합니다. 형식 오류나 중복 키가 있으면 값 없이 오류를 알리고 중단합니다. pull 실패 또는 pull 도중 환경파일이 변경되면 기존 파일을 덮어쓰지 않습니다. 성공 시 `0600` 임시 파일을 원자적으로 교체하므로 이후 직접 실행하는 Compose 명령에도 저장한 버전과 플랫폼이 적용됩니다. 별도로 export한 `IMAGE_TAG`·`IMAGE_PLATFORM`은 Compose의 환경변수 우선순위에 따라 `.env`보다 우선합니다.
 
-PostgreSQL 정상 기동 → migration 성공 → API·worker 순서로 시작합니다. DB·사진·로그는 named volume에 보관합니다. API 공개 포트는 `docker-compose-deployment.yaml`의 `ports`에서만 설정하며, 로컬 Compose도 이를 상속합니다. 호스트 Nginx는 `127.0.0.1:8002`로 포워딩하고 Docker는 컨테이너 내부의 `8000` 포트로 연결합니다. 기존 `.env`나 셸에 남아 있는 `BE_PORT`는 사용하지 않습니다. 공개 포트를 바꿀 때는 Compose의 매핑과 Nginx 설정, 로컬 요청의 허용 출처인 `FMH_LOCAL_ORIGIN`을 맞춥니다. [Nginx 예시](deploy/nginx.conf.example)를 기존 호스트 설정에 맞춰 적용합니다. 기본 Docker 네트워크는 `172.30.0.0/24`이며 다른 네트워크와 충돌하면 `.env`의 subnet·gateway·trusted proxy 값을 함께 바꿉니다.
+PostgreSQL 정상 기동 → migration 성공 → API·worker 순서로 시작합니다. DB·사진·로그는 named volume에 보관합니다. API 공개 포트는 환경별 Compose의 `ports`에서 직접 설정합니다. 로컬 `docker-compose.yaml`은 `127.0.0.1:8000:8000`, 배포 `docker-compose-deployment.yaml`은 `127.0.0.1:8002:8000`을 사용합니다. 호스트 Nginx는 배포용 `127.0.0.1:8002`로 포워딩하고 Docker는 컨테이너 내부의 `8000` 포트로 연결합니다. 기존 `.env`나 셸에 남아 있는 `BE_PORT`·`FMH_LOCAL_ORIGIN`은 사용하지 않습니다. 포트를 바꿀 때는 해당 Compose의 매핑과 로컬 허용 출처 또는 운영 Nginx 설정을 함께 맞춥니다. [Nginx 예시](deploy/nginx.conf.example)를 기존 호스트 설정에 맞춰 적용합니다. 기본 Docker 네트워크는 `172.30.0.0/24`이며 다른 네트워크와 충돌하면 `.env`의 subnet·gateway·trusted proxy 값을 함께 바꿉니다.
 
 ## 운영 자료와 계정
 

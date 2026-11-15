@@ -12,7 +12,7 @@ x-local-application: &local-application
   environment:
     FMH_ENVIRONMENT: development
     FMH_COOKIE_SECURE: "false"
-    FMH_PUBLIC_ORIGIN: ${FMH_LOCAL_ORIGIN:-http://localhost:8002}
+    FMH_PUBLIC_ORIGIN: http://localhost:8000
 
 services:
   db:
@@ -32,6 +32,9 @@ services:
     extends:
       file: docker-compose-deployment.yaml
       service: be
+    # 배포용 공개 포트를 병합하지 않고 로컬 포트 하나로 교체한다.
+    ports: !override
+      - "127.0.0.1:8000:8000"
 
   worker:
     <<: *local-application

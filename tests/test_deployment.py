@@ -407,7 +407,11 @@ fi
 
 
 @pytest.mark.skipif(shutil.which("docker") is None, reason="Docker CLI is not installed")
-def test_local_compose_resolves_build_and_deployment_settings():
+@pytest.mark.parametrize("compose_file, published_port", [
+    ("docker-compose.yaml", 8000),
+    ("docker-compose-deployment.yaml", 8002),
+])
+def test_compose_resolves_build_and_deployment_settings(compose_file, published_port):
     # An explicit empty env file keeps this check independent of private .env files.
     env = {key: value for key, value in os.environ.items()
            if not key.startswith(("FMH_", "LOCAL_", "IMAGE_", "COMPOSE_", "POSTGRES_", "DOCKER_SUBNET", "DOCKER_GATEWAY"))}
@@ -418,22 +422,35 @@ def test_local_compose_resolves_build_and_deployment_settings():
         "FMH_DATABASE_URL": "postgresql+psycopg2://test:test@db:5432/test",
         "FMH_SESSION_SECRET": "testing-only-independent-secret-value",
         "POSTGRES_PASSWORD": "testing-only",
+        # Previously used environment settings must not change either Compose port.
+        "BE_PORT": "19000", "FMH_LOCAL_ORIGIN": "http://localhost:19000",
     })
-    command = ["docker", "compose", "--env-file", "/dev/null", "-f", str(ROOT / "docker-compose.yaml"), "config", "--format", "json"]
+    command = ["docker", "compose", "--env-file", "/dev/null", "-f", str(ROOT / compose_file), "config", "--format", "json"]
     completed = subprocess.run(command, env=env, capture_output=True, text=True, check=True, timeout=30)
     config = json.loads(completed.stdout)
     assert set(config["services"]) == {"db", "migrate", "be", "worker"}
+    local = compose_file == "docker-compose.yaml"
+    assert [
+        (port["host_ip"], port["published"], port["target"])
+        for port in config["services"]["be"]["ports"]
+    ] == [("127.0.0.1", str(published_port), 8000)]
     for name, service in config["services"].items():
-        assert service["platform"] == "linux/amd64"
+        assert service["platform"] == ("linux/amd64" if local else "linux/arm64")
         if name == "db":
             continue
-        assert service["build"]["context"] == str(ROOT)
-        assert service["image"] == "eagleindesert/fix-my-home-be:local"
-        assert service["pull_policy"] == "build"
+        if local:
+            assert service["build"]["context"] == str(ROOT)
+        else:
+            assert "build" not in service
+        tag = "local" if local else "deployed-version"
+        assert service["image"] == f"eagleindesert/fix-my-home-be:{tag}"
+        assert service["pull_policy"] == ("build" if local else "missing")
         assert service["environment"]["FMH_DATABASE_URL"] == env["FMH_DATABASE_URL"]
-        assert service["environment"]["FMH_ENVIRONMENT"] == "development"
-        assert service["environment"]["FMH_COOKIE_SECURE"] == "false"
-        assert service["environment"]["FMH_PUBLIC_ORIGIN"] == "http://localhost:8002"
+        assert service["environment"]["FMH_ENVIRONMENT"] == ("development" if local else "production")
+        assert service["environment"]["FMH_COOKIE_SECURE"] == ("false" if local else "true")
+        assert service["environment"]["FMH_PUBLIC_ORIGIN"] == (
+            "http://localhost:8000" if local else "https://deployment.example"
+        )
     assert config["services"]["be"]["depends_on"]["migrate"]["condition"] == "service_completed_successfully"
     assert config["services"]["worker"]["depends_on"]["db"]["condition"] == "service_healthy"
 
