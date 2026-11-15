@@ -175,7 +175,7 @@ def create_app(settings=None, factory=None):
     validate_runtime()
     settings, factory = settings or get_settings(), factory or session_factory()
     logger = configure_logging(settings)
-    app = FastAPI(title="고쳐야집 Backend API", version="v1.0",
+    app = FastAPI(title="고쳐야집 Backend API", version="0.1.0",
                   description=API_DESCRIPTION,
                   docs_url="/docs", openapi_url="/openapi.json", redoc_url=None,
                   redirect_slashes=False,

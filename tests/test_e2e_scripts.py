@@ -9,7 +9,6 @@ import os
 import shutil
 import subprocess
 import threading
-from dataclasses import dataclass
 from http.cookiejar import MozillaCookieJar
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -103,48 +102,8 @@ def curl_request(arguments, clients, app):
     return response.status_code
 
 
-@dataclass
-class BashResult:
-    process: subprocess.CompletedProcess
-    directory: Path
-    requests: list
-    passwords: list
-
-    @property
-    def summary(self):
-        return json.loads((self.directory / "summary.json").read_text())
-
-    @property
-    def coverage(self):
-        return json.loads((self.directory / "coverage.json").read_text())
-
-    @property
-    def diagnostic(self):
-        last = self.directory / "last-response"
-        return last.read_text(errors="replace") if last.exists() else ""
-
-    def assert_success(self):
-        assert self.process.returncode == 0, (
-            self.process.stdout[-6000:] + self.process.stderr + self.diagnostic
-        )
-        assert self.summary["passed"]
-
-    def assert_credentials_removed(self):
-        for name in ("cookies", "response-headers", "request-body.json"):
-            assert not (self.directory / name).exists()
-        artifacts = self.process.stdout + self.process.stderr
-        for path in self.directory.rglob("*"):
-            if path.is_file():
-                artifacts += path.read_text(errors="replace")
-        for password in self.passwords:
-            assert password not in artifacts
-            assert json.dumps(password, ensure_ascii=False)[1:-1] not in artifacts
-            assert json.dumps(password, ensure_ascii=True)[1:-1] not in artifacts
-
-
-@pytest.fixture
-def bash_e2e(environment, tmp_path):
-    """실제 앱에 연결되는 Bash 실행기를 다른 로그인 테스트에서도 공유한다."""
+@pytest.mark.parametrize("ai_mode", ["success", "expected_failure", "unexpected_failure"])
+def test_bash_scenarios_cover_every_endpoint(environment, tmp_path, ai_mode):
     if any(shutil.which(command) is None for command in ("bash", "jq", "curl")):
         pytest.skip("Bash E2E 검증에는 bash, jq, curl이 필요합니다.")
     settings, factory, app = environment
@@ -154,6 +113,14 @@ def bash_e2e(environment, tmp_path):
         pytest.skip("PDF 한글 폰트가 필요합니다.")
     fixtures = tmp_path / "fixtures"
     config = prepare(settings, factory, fixtures, "http://testserver/v1")
+    if ai_mode == "expected_failure":
+        config["ai"] = {"expectedStatus": "FAILED", "expectedErrorCode": "AI_NOT_CONFIGURED"}
+        write_json(fixtures / "config.json", config)
+
+    def provider(*args):
+        if ai_mode == "success":
+            return diagnosis(*args)
+        raise DomainError("AI_NOT_CONFIGURED", "테스트용 AI 미설정 상태", 503)
     incoming, outgoing = tmp_path / "incoming", tmp_path / "outgoing"
     os.mkfifo(incoming)
     os.mkfifo(outgoing)
@@ -167,6 +134,38 @@ def bash_e2e(environment, tmp_path):
         'printf "%s" "$status"\n'
     )
     proxy.chmod(0o700)
+    failures = []
+    stopped = threading.Event()
+    clients = {}
+
+    def serve():
+        try:
+            while not stopped.is_set():
+                with incoming.open() as stream:
+                    payload = stream.read()
+                if not payload:
+                    continue
+                arguments = json.loads(payload)
+                if arguments is None:
+                    break
+                try:
+                    status = curl_request(arguments, clients, app)
+                    # 실제 worker를 통해 비동기 작업을 완료한다. AI 제공자만 고정한다.
+                    # 첫 AI polling은 QUEUED를 읽도록 해 대기 분기도 실행한다.
+                    if not ("POST" in arguments and arguments[-1].endswith("/ai-jobs")):
+                        while run_once(factory, settings, provider=provider):
+                            pass
+                except Exception as error:
+                    failures.append(error)
+                    status = 599
+                with outgoing.open("w") as stream:
+                    stream.write(f"{status}\n")
+        finally:
+            for client in clients.values():
+                client.__exit__(None, None, None)
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
     child_env = {
         key: value for key, value in os.environ.items()
         if not key.startswith("E2E_")
@@ -175,99 +174,38 @@ def bash_e2e(environment, tmp_path):
         "PATH": str(binaries) + os.pathsep + os.environ["PATH"],
         "E2E_RPC_IN": str(incoming), "E2E_RPC_OUT": str(outgoing),
     })
-
-    def run(*options, stdin="", ai_mode="success"):
-        if ai_mode == "expected_failure":
-            config["ai"] = {"expectedStatus": "FAILED", "expectedErrorCode": "AI_NOT_CONFIGURED"}
-        write_json(fixtures / "config.json", config)
-        failures, requests, passwords, clients = [], [], [], {}
-        stopped = threading.Event()
-
-        def provider(*args):
-            if ai_mode == "success":
-                return diagnosis(*args)
-            raise DomainError("AI_NOT_CONFIGURED", "테스트용 AI 미설정 상태", 503)
-
-        def serve():
-            try:
-                while not stopped.is_set():
-                    with incoming.open() as stream:
-                        payload = stream.read()
-                    if not payload:
-                        continue
-                    arguments = json.loads(payload)
-                    if arguments is None:
-                        break
-                    try:
-                        method = arguments[arguments.index("--request") + 1]
-                        path = urlsplit(arguments[-1]).path
-                        requests.append((method, path))
-                        if path in ("/v1/auth/login", "/v1/auth/signup"):
-                            body_file = arguments[arguments.index("--data-binary") + 1][1:]
-                            password = json.loads(Path(body_file).read_text())["password"]
-                            if len(password) >= 12:
-                                passwords.append(password)
-                        status = curl_request(arguments, clients, app)
-                        # 첫 AI polling에서 QUEUED를 읽도록 실제 worker 실행을 한 번 미룬다.
-                        if not (method == "POST" and arguments[-1].endswith("/ai-jobs")):
-                            while run_once(factory, settings, provider=provider):
-                                pass
-                    except Exception as error:
-                        failures.append(error)
-                        status = 599
-                    with outgoing.open("w") as stream:
-                        stream.write(f"{status}\n")
-            finally:
-                for client in clients.values():
-                    client.__exit__(None, None, None)
-
-        thread = threading.Thread(target=serve, daemon=True)
-        thread.start()
-        output = tmp_path / "results"
+    try:
+        result = subprocess.run(
+            ["bash", str(ROOT / "scripts/e2e/run.sh"), "--config", str(fixtures / "config.json"),
+             "--output", str(tmp_path / "results")],
+            cwd=tmp_path, env=child_env, capture_output=True, text=True, timeout=120,
+        )
+    finally:
+        stopped.set()
+        # reader가 기다리는 중에도 TCP 없이 종료한다.
         try:
-            process = subprocess.run(
-                ["bash", str(ROOT / "scripts/e2e/run.sh"),
-                 "--config", str(fixtures / "config.json"), "--output", str(output), *options],
-                cwd=tmp_path, env=child_env, input=stdin,
-                capture_output=True, text=True, timeout=120,
-            )
-        finally:
-            stopped.set()
-            # reader가 기다리는 중에도 TCP 없이 종료한다.
-            try:
-                descriptor = os.open(incoming, os.O_WRONLY | os.O_NONBLOCK)
-            except OSError:
-                descriptor = None
-            if descriptor is not None:
-                os.write(descriptor, b"null\n")
-                os.close(descriptor)
-            thread.join(timeout=10)
-        assert not thread.is_alive(), "curl FIFO 어댑터가 종료되지 않았습니다."
-        assert not failures, failures
-        directories = list(output.glob("run.*"))
-        assert len(directories) == 1, process.stdout + process.stderr
-        return BashResult(process, directories[0], requests, passwords)
-
-    return config, run
-
-
-@pytest.mark.parametrize("ai_mode", ["success", "expected_failure", "unexpected_failure"])
-def test_bash_scenarios_cover_every_endpoint(bash_e2e, ai_mode):
-    _, run = bash_e2e
-    result = run(ai_mode=ai_mode)
-    result.assert_credentials_removed()
-    summary = result.summary
+            descriptor = os.open(incoming, os.O_WRONLY | os.O_NONBLOCK)
+        except OSError:
+            descriptor = None
+        if descriptor is not None:
+            os.write(descriptor, b"null\n")
+            os.close(descriptor)
+        thread.join(timeout=10)
+    assert not failures, failures
+    run = next((tmp_path / "results").glob("run.*"))
+    last = run / "last-response"
+    diagnostic = last.read_text(errors="replace") if last.exists() else ""
+    assert not (run / "cookies").exists()
+    assert not (run / "response-headers").exists()
+    assert not (run / "request-body.json").exists()
+    summary = json.loads((run / "summary.json").read_text())
     if ai_mode == "unexpected_failure":
-        assert result.process.returncode != 0 and not summary["passed"]
-        assert "예상 종료 상태 SUCCEEDED, 실제 FAILED" in result.process.stderr
-        assert json.loads(result.diagnostic)["data"]["error"]["code"] == "AI_NOT_CONFIGURED"
+        assert result.returncode != 0 and not summary["passed"]
+        assert "예상 종료 상태 SUCCEEDED, 실제 FAILED" in result.stderr
+        assert json.loads(diagnostic)["data"]["error"]["code"] == "AI_NOT_CONFIGURED"
         return
-    result.assert_success()
-    report = result.coverage
-    assert report["total"] == len(ENDPOINTS)
-    assert report["successful"] == len(ENDPOINTS) - 1
-    assert report["missing"] == ["POST /auth/signup"]
-    assert [item["endpoint"] for item in report["skipped"]] == ["POST /auth/signup"]
-    assert all(item["reason"] for item in report["skipped"])
-    assert report["uncovered"] == []
+    assert result.returncode == 0, result.stdout[-6000:] + result.stderr + diagnostic
+    report = json.loads((run / "coverage.json").read_text())
+    assert report["successful"] == report["total"] == len(ENDPOINTS)
+    assert report["missing"] == []
     assert summary["passed"] and summary["assertions"] > len(ENDPOINTS)

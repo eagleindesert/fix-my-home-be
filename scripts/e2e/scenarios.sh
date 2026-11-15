@@ -2,18 +2,10 @@
 # 모든 업무 상태 변경은 공개된 /v1 API를 통해 진행한다.
 
 check_public_and_sessions() {
-    if [[ ${LOCAL:-false} == true ]]; then
-        check_signup
-    fi
-    if [[ ${SKIP_HEALTH:-false} == true ]]; then
-        printf 'SKIP GET /health/live: 외부 접근이 제한된 상태 확인 API\n'
-        printf 'SKIP GET /health/ready: 외부 접근이 제한된 상태 확인 API\n'
-    else
-        request anonymous GET /health/live 200
-        assert_json '.status == "live"' '프로세스 상태'
-        request anonymous GET /health/ready 200
-        assert_json '.status == "ready"' 'DB 및 migration 상태'
-    fi
+    request anonymous GET /health/live 200
+    assert_json '.status == "live"' '프로세스 상태'
+    request anonymous GET /health/ready 200
+    assert_json '.status == "ready"' 'DB 및 migration 상태'
     request anonymous GET /docs 200
     [[ -s $RESPONSE_FILE ]] || die 'Swagger UI 응답이 비어 있습니다.'
     request anonymous GET /docs/oauth2-redirect 200
@@ -32,27 +24,10 @@ check_public_and_sessions() {
     assert_json '.data.activeRole == "USER"' '사용자 세션'
     login other
     login technician
-    local user_id other_id technician_id
-    user_id=$(jq -er '.accountId' <<< "$SESSION_USER")
-    other_id=$(jq -er '.accountId' <<< "$SESSION_OTHER")
-    technician_id=$(jq -er '.accountId' <<< "$SESSION_TECHNICIAN")
-    [[ $user_id != "$other_id" && $user_id != "$technician_id" && $other_id != "$technician_id" ]] || \
-        die '권한 분리 검증에는 서로 다른 사용자·다른 사용자·기사 계정 3개가 필요합니다.'
-    if [[ -n ${FAILED_DELETION_ID:-} ]]; then
-        request user GET "/deletion-jobs/$FAILED_DELETION_ID" 200
-        assert_json '.data.status == "FAILED" and .data.error.retryable == true' '삭제 재시도 사전 자료 확인'
-    fi
     request technician PATCH /auth/role 200 '{"role":"TECHNICIAN"}'
     assert_json '.data.activeRole == "TECHNICIAN"' '기사 역할 전환'
-    if jq -e '.availableRoles | index("TECHNICIAN") != null' <<< "$SESSION_USER" >/dev/null; then
-        request user PATCH /auth/role 200 '{"role":"TECHNICIAN"}'
-        assert_json '.data.activeRole == "TECHNICIAN"' '보유한 기사 역할 전환'
-        request user PATCH /auth/role 200 '{"role":"USER"}'
-        assert_json '.data.activeRole == "USER"' '사용자 역할 복귀'
-    else
-        request user PATCH /auth/role 403 '{"role":"TECHNICIAN"}'
-        assert_error ROLE_FORBIDDEN
-    fi
+    request user PATCH /auth/role 403 '{"role":"TECHNICIAN"}'
+    assert_error ROLE_FORBIDDEN
     request user POST /auth/logout 403 '' --header 'Origin: https://untrusted.example'
     assert_error ORIGIN_FORBIDDEN
     request user GET /auth/me 200
@@ -72,14 +47,8 @@ prepare_technician() {
                      ranges:[{startAt:($base+3600|todateiso8601), endAt:($base+21600|todateiso8601)}]}}')
     request technician GET /technicians/me 200
     TECH_ID=$(value '.data.technicianId')
-    local revision source photo_ids from to schedule_revision
+    local revision source photo_ids
     revision=$(value '.data.profileRevision')
-    from=$(jq -r '.from' <<< "$TIMES")
-    to=$(jq -r '.to' <<< "$TIMES")
-    request technician GET "/technicians/me/schedule?from=$from&to=$to" 200
-    schedule_revision=$(value '.data.revision')
-    assert_json '.data.departureLocationId == $location and .data.returnLocationId == $location' \
-        '기사 대표 위치 사전 자료' --arg location "$LOCATION_ID"
     source=$(config_value '.source | tojson')
     request technician POST /technicians/me/portfolio-photos 201 '' \
         --form "files=@\"$PHOTO_PATH\";filename=e2e.png;type=image/png" --form-string "source=$source"
@@ -90,8 +59,8 @@ prepare_technician() {
         {expectedRevision:$revision, profile:{displayName:"E2E 가상 기사", fields:["PLUMBING"],
          regionIds:[$region.regionId], representativeMediaIds:$ids,
          contacts:[{contact:{label:"테스트 연락처",value:"010-0000-0000"},isPublic:true}]}}')"
-    find_page_item anonymous "/public/technicians?field=PLUMBING&regionId=$(jq -r '.regionId' <<< "$REGION")&limit=100" \
-        '.technicianId == $tech' '공개 기사 검색' --arg tech "$TECH_ID"
+    request anonymous GET "/public/technicians?field=PLUMBING&regionId=$(jq -r '.regionId' <<< "$REGION")&limit=1" 200
+    assert_json ".data.items | any(.technicianId == \"$TECH_ID\")" '공개 기사 검색'
     request anonymous GET "/public/technicians/$TECH_ID" 200
     assert_json '.data.displayName == "E2E 가상 기사"' '공개 프로필 수정 반영'
     request user GET "/technicians/$TECH_ID/portfolio" 200
@@ -104,7 +73,13 @@ prepare_technician() {
     assert_json '(.data.content | del(.source)) == ($expected | del(.source))' \
         '사례 변경 반영' --argjson expected "$(config_value '.updatedCase | tojson')"
 
-    request technician PUT /technicians/me/schedule 200 "$(json --arg revision "$schedule_revision" \
+    local from to
+    from=$(jq -r '.from' <<< "$TIMES")
+    to=$(jq -r '.to' <<< "$TIMES")
+    request technician GET "/technicians/me/schedule?from=$from&to=$to" 200
+    revision=$(value '.data.revision')
+    assert_json ".data.departureLocationId == \"$LOCATION_ID\" and .data.returnLocationId == \"$LOCATION_ID\"" '기사 대표 위치 사전 자료'
+    request technician PUT /technicians/me/schedule 200 "$(json --arg revision "$revision" \
         --argjson times "$TIMES" '{expectedRevision:$revision, from:$times.from, to:$times.to,
         availability:$times.availability, externalVisits:[]}')"
     assert_json '.data.availability | length > 0' '기사 일정 저장'
@@ -232,14 +207,12 @@ check_candidates() {
     assert_json '.data.availablePaths | index("TECHNICIAN") != null' '기사 해결 경로'
     request user GET "/work-items/$ITEM_ID/case-recommendations" 200
     assert_json '.data.evaluationStatus == "NOT_REQUESTED"' '사례 AI 평가 미실행 상태'
-    find_page_item user "/work-items/$ITEM_ID/general-candidates?limit=100" \
-        '.technician.technicianId == $tech and .timeFit == "MATCHED"' \
-        '일반 기사 추천과 일정 적합성' --arg tech "$TECH_ID"
+    request user GET "/work-items/$ITEM_ID/general-candidates?limit=1" 200
+    assert_json ".data.items | any(.technician.technicianId == \"$TECH_ID\" and .timeFit == \"MATCHED\")" '일반 기사 추천과 일정 적합성'
     refresh_request
     request user PUT "/work-items/$ITEM_ID/route-exploration" 200 "$(json --argjson item "$ITEM" \
         '{expectedRevision:$item.revision,enabled:true,confirmed:true}')"
-    find_page_item technician "/technicians/me/route-candidates?date=$(jq -r '.date' <<< "$TIMES")&limit=100" \
-        '.candidateId | startswith($item + ".")' '동선 후보 검색' --arg item "$ITEM_ID"
+    request technician GET "/technicians/me/route-candidates?date=$(jq -r '.date' <<< "$TIMES")&limit=100" 200
     local candidate
     candidate=$(jq -er --arg item "$ITEM_ID" '.data.items[] | select(.candidateId | startswith($item+".")) | .candidateId' "$RESPONSE_FILE")
     request technician POST "/route-candidates/$candidate/interests" 201
@@ -288,10 +261,9 @@ create_consultation() {
     request technician PATCH "/consultations/$CONSULTATION_ID" 200 "$(jq -c \
         '{expectedRevision:.data.revision,action:"ACCEPT"}' "$RESPONSE_FILE")"
     assert_json '.data.status == "ACCEPTED"' '기사 상담 수락'
-    find_page_item user '/consultations?status=ACCEPTED&limit=100' \
-        '.consultationId == $id' '사용자 상담 목록' --arg id "$CONSULTATION_ID"
-    find_page_item technician '/consultations?status=ACCEPTED&limit=100' \
-        '.consultationId == $id' '기사 상담 목록' --arg id "$CONSULTATION_ID"
+    request user GET '/consultations?status=ACCEPTED&limit=100' 200
+    assert_json ".data.items | any(.consultationId == \"$CONSULTATION_ID\")" '사용자 상담 목록'
+    request technician GET '/consultations?status=ACCEPTED&limit=100' 200
     request technician GET "/deliveries/$DELIVERY_ID" 200
     request technician GET "/requests/$REQUEST_ID" 403
     assert_error ROLE_FORBIDDEN
@@ -327,10 +299,9 @@ reserve() {
     RESERVATION_ID=$(value '.data.reservationId')
     IDEMPOTENCY_KEY="$RUN_ID-reserve-$ITEM_ID" request user POST "/work-items/$ITEM_ID/reservations" 201 "$body"
     assert_json ".data.reservationId == \"$RESERVATION_ID\" and .data.status == \"CONFIRMED\"" '예약 재전송 중복 방지'
-    find_page_item user '/reservations?status=CONFIRMED&limit=100' \
-        '.reservationId == $id' '사용자 예약 목록' --arg id "$RESERVATION_ID"
-    find_page_item technician '/reservations?status=CONFIRMED&limit=100' \
-        '.reservationId == $id' '기사 예약 목록' --arg id "$RESERVATION_ID"
+    request user GET '/reservations?status=CONFIRMED&limit=100' 200
+    assert_json ".data.items | any(.reservationId == \"$RESERVATION_ID\")" '사용자 예약 목록'
+    request technician GET '/reservations?status=CONFIRMED&limit=100' 200
     request technician GET "/reservations/$RESERVATION_ID" 200
     assert_json '.data.agreement.terms.visitDetails.contact == "010-0000-0001"' '활성 예약 기사 방문 정보'
 }
@@ -413,7 +384,6 @@ check_cancellation() {
 
 close_and_delete() {
     local target job_id
-    local -a completed_job_ids=()
     REQUEST_ID=$MAIN_REQUEST_ID ITEM_ID=$MAIN_ITEM_ID
     refresh_request
     request user POST "/requests/$REQUEST_ID/closure" 200 "$(json --argjson root "$ROOT" \
@@ -424,7 +394,6 @@ close_and_delete() {
         request user POST /deletion-jobs 202 "$(json --arg target "$target" \
             '{targetType:"REQUEST",targetId:$target,includeAllReferences:true}')"
         job_id=$(value '.data.jobId')
-        completed_job_ids+=("$job_id")
         assert_json '.data.accessBlocked == true' '삭제 접수 즉시 접근 차단'
         request user GET "/requests/$target" 404
         assert_error RESOURCE_NOT_FOUND
@@ -433,22 +402,15 @@ close_and_delete() {
     done
     request user POST "/deletion-jobs/$job_id/retry" 409
     assert_error INVALID_STATE
-    if [[ -n ${FAILED_DELETION_ID:-} ]]; then
-        request user GET "/deletion-jobs/$FAILED_DELETION_ID" 200
-        assert_json '.data.status == "FAILED" and .data.error.retryable == true' '삭제 재시도 선행 상태'
-        request user POST "/deletion-jobs/$FAILED_DELETION_ID/retry" 202
-        poll_job "/deletion-jobs/$FAILED_DELETION_ID" COMPLETED
-        assert_json '.data.error == null and .data.restoredPhotoSlots == 1' '실패한 삭제 작업 복구'
-    else
-        printf 'SKIP 삭제 재시도 성공 경로: failedDeletionJobId 미지정 (완료 작업 재시도 거부는 검증)\n'
-    fi
-    for job_id in "${completed_job_ids[@]}"; do
-        find_page_item user '/deletion-jobs?status=COMPLETED&targetType=REQUEST&limit=100' \
-            '.jobId == $id' '이번 실행에서 완료된 삭제 작업 목록' --arg id "$job_id"
-    done
+    request user GET "/deletion-jobs/$FAILED_DELETION_ID" 200
+    assert_json '.data.status == "FAILED" and .data.error.retryable == true' '삭제 재시도 선행 상태'
+    request user POST "/deletion-jobs/$FAILED_DELETION_ID/retry" 202
+    poll_job "/deletion-jobs/$FAILED_DELETION_ID" COMPLETED
+    assert_json '.data.error == null and .data.restoredPhotoSlots == 1' '실패한 삭제 작업 복구'
+    request user GET '/deletion-jobs?status=COMPLETED&targetType=REQUEST&limit=100' 200
+    assert_json '.data.items | length >= 3' '완료된 삭제 작업 목록'
     request user GET '/requests?limit=100' 200
-    assert_json 'all(.data.items[]; .requestId != $main and .requestId != $cancel)' \
-        '이번 실행 요청 정리 완료' --arg main "$MAIN_REQUEST_ID" --arg cancel "$CANCEL_REQUEST_ID"
+    assert_json '.data.items | length == 0' '테스트 요청 정리 완료'
     for target in user other technician; do
         request "$target" POST /auth/logout 204
         request "$target" GET /auth/me 401

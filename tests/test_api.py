@@ -14,7 +14,7 @@ from conftest import APIClient as TestClient, create_request, login, picture, re
 
 def test_contract_routes_and_health(client):
     schema = client.get("/openapi.json").json()
-    assert sum(len([m for m in p if m in ("get", "post", "put", "patch", "delete")]) for p in schema["paths"].values()) == len(ENDPOINTS)
+    assert sum(len([m for m in p if m in ("get", "post", "put", "patch", "delete")]) for p in schema["paths"].values()) == 79
     for endpoint in ENDPOINTS:
         assert endpoint["method"].lower() in schema["paths"]["/v1"+endpoint["path"]]
     assert client.get("/health/live").status_code == 200

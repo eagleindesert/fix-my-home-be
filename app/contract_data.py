@@ -3156,15 +3156,15 @@ TAGS = [{'name': 'Authentication', 'description': '인증·역할'},
 
 ENDPOINTS = [{'method': 'POST',
   'path': '/auth/login',
-  'summary': '로그인',
+  'summary': '테스트 계정 로그인',
   'tag': 'Authentication',
   'description': '- **인증 요구사항**: ❌\n'
-                 '- **선행 조건**: 가입 또는 사전 발급 계정\n'
-                 '- **설명**: 기존 계정으로 로그인하고 세션 쿠키와 계정·역할 정보를 반환한다.',
+                 '- **선행 조건**: 사전 발급 계정\n'
+                 '- **설명**: 발급 계정으로 로그인하고 세션 쿠키와 계정·역할 정보를 반환한다.',
   'path_parameters': [],
   'response_description': '| 필드 | 타입 | 설명 |\n| --- | --- | --- |\n| `data` | SessionDTO | 처리 결과 |',
   'response_headers': {'Set-Cookie': '세션 쿠키; 이름·속성은 공통 미정 항목 참조'},
-  'errors': {'401': ['계정 인증 실패 (`INVALID_CREDENTIALS`)']},
+  'errors': {'401': ['테스트 계정 인증 실패 (`INVALID_CREDENTIALS`)']},
   'status': 200,
   'response': 'SessionDTO',
   'authenticated': False,
@@ -3173,11 +3173,11 @@ ENDPOINTS = [{'method': 'POST',
   'body': [{'name': 'loginId',
             'type': 'string',
             'required': True,
-            'description': '가입 또는 발급 계정 · 로그인 식별값'},
+            'description': '발급 계정 · 로그인 식별값'},
            {'name': 'password',
             'type': 'string',
             'required': True,
-            'description': '계정 자격증명 · 로그·응답에 포함하지 않음'}],
+            'description': '발급 자격증명 · 로그·응답에 포함하지 않음'}],
   'query': []},
  {'method': 'POST',
   'path': '/auth/logout',
@@ -3231,52 +3231,6 @@ ENDPOINTS = [{'method': 'POST',
             'type': 'Role',
             'required': True,
             'description': '해당 계정의 허용 역할 · 전환할 역할'}],
-  'query': []},
- {'method': 'POST',
-  'path': '/auth/signup',
-  'summary': '회원가입 및 자동 로그인',
-  'tag': 'Authentication',
-  'description': '- **인증 요구사항**: ❌\n'
-                 '- **선행 조건**: 없음\n'
-                 '- **설명**: 사용자 또는 기사 계정을 생성하고 즉시 로그인한다. 계정·기사 프로필·초기 일정·세션은 하나의 트랜잭션으로 저장한다. 이미 '
-                 '로그인한 브라우저에서 가입하면 기존 세션을 폐기하고 새 계정 세션으로 교체한다.\n'
-                 '- **역할 규칙**: `USER` 가입의 허용 역할은 `[USER]`, `TECHNICIAN` 가입은 `[USER, '
-                 'TECHNICIAN]`이다. 초기 활성 역할은 모두 `USER`이며 기사 기능은 `/auth/role`에서 전환한다. 임의 역할이나 추가 권한은 '
-                 '지정할 수 없다.\n'
-                 '- **기사 초기 지역**: 기사 가입에서 `regionId`를 제공하면 검증된 지원 지역을 초기 활동 지역으로 설정하고, 해당 지역의 대표 '
-                 '위치를 일정의 출발·복귀 위치로 사용한다. 초기 가능 시간과 외부 일정은 빈 배열이다. 생략하면 활동 지역·대표 위치를 설정하지 않는다. 기존 '
-                 '기사의 대표 위치는 이 API로 변경하지 않는다.',
-  'path_parameters': [],
-  'response_description': '| 필드 | 타입 | 설명 |\n'
-                          '| --- | --- | --- |\n'
-                          '| `data` | SessionDTO | 새 계정과 USER 활성 역할. 기사 가입은 technicianId를 포함한다. |',
-  'response_headers': {'Set-Cookie': '로그인과 동일한 세션 쿠키; HttpOnly, SameSite=Lax, Path=/, 운영 HTTPS에서 '
-                                     'Secure'},
-  'errors': {'409': ['이미 사용 중인 로그인 ID (`ACCOUNT_EXISTS`)'],
-             '422': ['로그인 ID·비밀번호 형식, 가입 역할 또는 일반 사용자의 지역 지정 오류 (`VALIDATION_ERROR`)',
-                     '등록되지 않았거나 검증되지 않은 지원 지역 (`INVALID_REFERENCE`)']},
-  'status': 201,
-  'response': 'SessionDTO',
-  'authenticated': False,
-  'idempotent': False,
-  'multipart': False,
-  'body': [{'name': 'loginId',
-            'type': 'string',
-            'required': True,
-            'description': '3~128자, 영문·숫자·.·_·- · 대소문자를 구분하는 고유 로그인 ID. 앞뒤 공백을 제거하지 않는다.'},
-           {'name': 'password',
-            'type': 'string',
-            'required': True,
-            'description': '12~128자, 공백만 입력 불가 · 해시로 저장하며 로그·응답에 포함하지 않는다.'},
-           {'name': 'role',
-            'type': 'Role',
-            'required': True,
-            'description': 'USER 또는 TECHNICIAN · 가입 유형. 기사도 사용자 역할을 함께 가진다.'},
-           {'name': 'regionId',
-            'type': 'string',
-            'required': False,
-            'description': 'TECHNICIAN에서만 허용, 검증된 지원 지역 ID · /public/service-info의 지원 지역 중 기사 초기 '
-                           '활동 지역. 생략 가능하며 null은 허용하지 않는다.'}],
   'query': []},
  {'method': 'GET',
   'path': '/public/service-info',
