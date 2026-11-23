@@ -596,13 +596,13 @@ def test_build_push_reprompts_invalid_input_without_repeating_lookup(tmp_path, p
 
 
 @pytest.mark.skipif(shutil.which("docker") is None, reason="Docker CLI is not installed")
-@pytest.mark.parametrize("compose_file, published_port", [
-    ("docker-compose.yaml", 8000),
-    ("docker-compose-deployment.yaml", 8002),
+@pytest.mark.parametrize("compose_file, api_port, db_port", [
+    ("docker-compose.yaml", 8000, 5432),
+    ("docker-compose-deployment.yaml", 8002, 5434),
 ])
 @pytest.mark.parametrize("openai_base_url", ["", "https://ai.example.test/v1"])
 def test_compose_resolves_build_and_deployment_settings(
-    compose_file, published_port, openai_base_url,
+    compose_file, api_port, db_port, openai_base_url,
 ):
     # An explicit empty env file keeps this check independent of private .env files.
     env = {key: value for key, value in os.environ.items()
@@ -627,9 +627,13 @@ def test_compose_resolves_build_and_deployment_settings(
     assert config["services"]["db"]["environment"]["POSTGRES_PASSWORD"] == env["POSTGRES_PASSWORD"]
     local = compose_file == "docker-compose.yaml"
     assert [
+        (port.get("host_ip"), port["published"], port["target"])
+        for port in config["services"]["db"]["ports"]
+    ] == [("127.0.0.1", str(db_port), 5432)]
+    assert [
         (port["host_ip"], port["published"], port["target"])
         for port in config["services"]["be"]["ports"]
-    ] == [("127.0.0.1", str(published_port), 8000)]
+    ] == [("127.0.0.1", str(api_port), 8000)]
     for name, service in config["services"].items():
         assert service["platform"] == ("linux/amd64" if local else "linux/arm64")
         if name == "db":

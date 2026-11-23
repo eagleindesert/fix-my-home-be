@@ -1,3 +1,5 @@
+import hashlib
+import io
 import json
 import subprocess
 import sys
@@ -6,13 +8,16 @@ from pathlib import Path
 
 import pytest
 from alembic import command
+from PIL import Image
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from app.config import Settings
 from app.db import Account, Job, ReferenceData, Resource, StoredFile
 from app.main import create_app
+from app.media import FileStore, normalize_image
 from app.schema import alembic_config
+from app.security import verify_password
 from app.services.context import Context
 from app.time_rules import SEOUL, iso
 from app.worker import run_once
@@ -62,13 +67,16 @@ def test_new_user_can_find_seeded_technician_and_confirm_reservation(seed_enviro
     settings, factory = seed_environment
     seeded = seed_initial.seed_initial(settings, factory)
     assert seeded.created
-    assert seeded.generated_password is None
+    assert seeded.generated_password
+    assert seeded.generated_password != settings.seed_password.get_secret_value()
     with factory() as db:
         accounts = list(db.scalars(select(Account)))
         tech_accounts = [row for row in accounts if "TECHNICIAN" in row.roles]
         user_only_accounts = [row for row in accounts if "TECHNICIAN" not in row.roles]
         assert len(tech_accounts) == 32
         assert {row.login_id for row in user_only_accounts} == {
+            seed_initial.SCENARIO1_USER_LOGIN,
+            seed_initial.SCENARIO2_USER_LOGIN,
             seed_initial.SCENARIO2_COMPETITOR_USER_LOGIN,
             seed_initial.SCENARIO3_USER_LOGIN,
         }
@@ -80,7 +88,7 @@ def test_new_user_can_find_seeded_technician_and_confirm_reservation(seed_enviro
             "loginId": "new-user", "password": "testing-password-123",
         }), status=201)
         login(user, "new-user")
-        login(technician, seed_initial.DEMO_LOGIN, "TECHNICIAN")
+        login(technician, seed_initial.DEMO_LOGIN, "TECHNICIAN", password=seeded.generated_password)
         tech = result(technician.get("/v1/technicians/me"), "TechnicianDTO")
         technician_id = tech["technicianId"]
         service = result(user.get("/v1/public/service-info"))
@@ -140,7 +148,7 @@ def test_scenario_1_sliding_door_candidates_cases_and_single_photo_consultation(
             ("B", tech_b, seed_initial.SCENARIO1_TECH_B_LOGIN),
             ("C", tech_c, seed_initial.SCENARIO1_TECH_C_LOGIN),
         ):
-            login(client, login_id, "TECHNICIAN")
+            login(client, login_id, "TECHNICIAN", password=seeded.generated_password)
             ids[key] = result(client.get("/v1/technicians/me"), "TechnicianDTO")["technicianId"]
 
         service = result(minseo.get("/v1/public/service-info"))
@@ -257,7 +265,15 @@ def test_scenario_1_sliding_door_candidates_cases_and_single_photo_consultation(
                 ],
             },
         }
-        assert run_once(factory, settings, provider=lambda *_: mock_ai_output)
+        captured_prompt = {}
+
+        def case_provider(settings_arg, prompt, photos_arg, timeout):
+            captured_prompt.update(prompt)
+            return mock_ai_output
+
+        assert run_once(factory, settings, provider=case_provider)
+        assert {c["technician"]["technicianId"] for c in captured_prompt["candidates"]} == {ids["A"], ids["B"], ids["C"]}
+        assert {c["technicianId"] for c in captured_prompt["cases"]} == {ids["A"], ids["B"], ids["C"]}
         recs = result(minseo.get(f"/v1/work-items/{item['workItemId']}/case-recommendations"), "CaseRecommendationsDTO")
         assert [r["candidate"]["technician"]["technicianId"] for r in recs["recommendations"]] == [ids["A"]]
 
@@ -309,7 +325,7 @@ def test_scenario_2_route_discount_ranking_and_schedule_conflict(seed_environmen
             "loginId": "jihoon", "password": "testing-password-123",
         }), status=201)
         login(jihoon, "jihoon")
-        login(technician, seed_initial.DEMO_LOGIN, "TECHNICIAN")
+        login(technician, seed_initial.DEMO_LOGIN, "TECHNICIAN", password=seeded.generated_password)
         tech = result(technician.get("/v1/technicians/me"), "TechnicianDTO")
 
         service = result(jihoon.get("/v1/public/service-info"))
@@ -506,12 +522,12 @@ def test_scenario_3_wallpaper_progress_pdf_handover_and_preparation_notes(seed_e
     settings, factory = seed_environment
     if not settings.pdf_font.is_file():
         settings.pdf_font = Path("/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf")
-    seed_initial.seed_initial(settings, factory)
+    seeded = seed_initial.seed_initial(settings, factory)
 
     app = create_app(settings, factory)
     with APIClient(app) as seoyeon, APIClient(app) as wall_tech:
-        login(seoyeon, seed_initial.SCENARIO3_USER_LOGIN)
-        login(wall_tech, seed_initial.SCENARIO3_TECH_LOGIN, "TECHNICIAN")
+        login(seoyeon, seed_initial.SCENARIO3_USER_LOGIN, password=seeded.generated_password)
+        login(wall_tech, seed_initial.SCENARIO3_TECH_LOGIN, "TECHNICIAN", password=seeded.generated_password)
 
         listing = result(seoyeon.get("/v1/requests"))
         assert len(listing["items"]) == 1
@@ -554,6 +570,77 @@ def test_scenario_3_wallpaper_progress_pdf_handover_and_preparation_notes(seed_e
         root = result(seoyeon.get(f"/v1/requests/{root['requestId']}"), "RequestDTO")
         item = root["workItems"][0]
 
+        # 1일차-4일차 PHOTO_COMPARISON 결과를 실행하고, REPORT_DRAFT·보고서·전달본·PDF에 regions가 자동 연결되는지 검증한다.
+        photo3 = photos[2]
+        region_box = {
+            "photoId": photo3["photoId"],
+            "width": photo3["media"]["width"],
+            "height": photo3["media"]["height"],
+            "box": [0.22, 0.50, 0.49, 0.88],
+            "description": "물자국의 아래쪽 경계가 첫날보다 넓게 관찰됨",
+        }
+        compare_job = result(seoyeon.post(
+            f"/v1/requests/{root['requestId']}/ai-jobs",
+            headers={"Idempotency-Key": '"s3-compare"'},
+            json={
+                "type": "PHOTO_COMPARISON",
+                "photoGroupId": group["groupId"],
+                "sourceRevision": root["sourceRevision"],
+            },
+        ), "AiJobDTO", 202)
+        compare_output = {
+            "summary": None, "fieldCandidates": [], "question": None,
+            "guideExplanation": None, "caseRecommendations": None, "reportDraft": None,
+            "comparison": {
+                "groupId": group["groupId"],
+                "photoIds": [photos[0]["photoId"], photo3["photoId"]],
+                "status": "CHANGED",
+                "chronologyKnown": True,
+                "regions": [region_box],
+                "observations": [{
+                    "text": "4일차 사진에서 물자국이 아래쪽으로 넓어 보임.",
+                    "sourceType": "OBSERVATION",
+                    "photoIds": [photos[0]["photoId"], photo3["photoId"]],
+                    "recordIds": [],
+                    "performanceReservationIds": [],
+                }],
+                "causeUnknown": True,
+                "reason": None,
+                "retakeGuide": [],
+            },
+        }
+        assert run_once(factory, settings, provider=lambda *_: compare_output)
+        compare_done = result(seoyeon.get(f"/v1/ai-jobs/{compare_job['jobId']}"), "AiJobDTO")
+        assert compare_done["status"] == "SUCCEEDED"
+
+        draft_prompt = {}
+        draft_job = result(seoyeon.post(
+            f"/v1/requests/{root['requestId']}/ai-jobs",
+            headers={"Idempotency-Key": '"s3-report-draft"'},
+            json={
+                "type": "REPORT_DRAFT",
+                "workItemId": item["workItemId"],
+                "sourceRevision": item["sourceRevision"],
+            },
+        ), "AiJobDTO", 202)
+
+        def draft_provider(settings_arg, prompt, photos_arg, timeout):
+            draft_prompt.update(prompt)
+            return {
+                "summary": None, "fieldCandidates": [], "question": None,
+                "guideExplanation": None, "caseRecommendations": None, "comparison": None,
+                "reportDraft": {
+                    "markdown": "# 거실 창문 왼쪽 아래 벽지 물자국 경과 보고서\n\n- 4일차 사진에서 물자국이 아래쪽으로 넓게 보임.\n- 원인은 현장 확인 필요.",
+                    "photoIds": [photos[0]["photoId"], photo3["photoId"]],
+                    "facts": [],
+                    "unknowns": ["내부 원인"],
+                },
+            }
+
+        assert run_once(factory, settings, provider=draft_provider)
+        assert len(draft_prompt["comparisons"]) == 1
+        assert draft_prompt["comparisons"][0]["regions"][0]["photoId"] == photo3["photoId"]
+
         report = result(seoyeon.put(
             f"/v1/work-items/{item['workItemId']}/report",
             json={
@@ -579,6 +666,8 @@ def test_scenario_3_wallpaper_progress_pdf_handover_and_preparation_notes(seed_e
             json={"expectedRevision": report["revision"], "sourceRevision": item["sourceRevision"], "confirmed": True},
         ), "ReportDTO")
         assert report["reviewStatus"] == "CONFIRMED"
+        photo3_evidence = next(p for p in report["current"]["photos"] if p["photoId"] == photo3["photoId"])
+        assert len(photo3_evidence["regions"]) == 1 and photo3_evidence["regions"][0]["box"] == region_box["box"]
 
         # 집주인 공유용 EXTERNAL_PDF 생성 및 다운로드
         pdf_delivery = result(seoyeon.post(
@@ -663,7 +752,7 @@ def test_scenario_3_wallpaper_progress_pdf_handover_and_preparation_notes(seed_e
         assert "창틀 주변과 벽지 물자국 경계를 함께 점검" in prep["inspectionItems"]
 
 
-def test_rerun_reuses_reference_data_and_only_extends_unedited_schedules(seed_environment):
+def test_rerun_rotates_demo_password_and_extends_unedited_schedules(seed_environment):
     settings, factory = seed_environment
     today = date(2030, 1, 1)
     with factory.begin() as db:
@@ -672,11 +761,24 @@ def test_rerun_reuses_reference_data_and_only_extends_unedited_schedules(seed_en
             data={"city": "서울특별시", "district": "마포구", "neighborhood": "연남동",
                   "representativeLocationId": "existing-location"},
         ))
-    seed_initial.seed_initial(settings, factory, today)
+    seeded = seed_initial.seed_initial(settings, factory, today)
+    with factory() as db:
+        other_hashes = dict(db.execute(
+            select(Account.login_id, Account.password_hash)
+            .where(Account.login_id.not_in(seed_initial.DEMO_PASSWORD_LOGINS))
+        ).all())
     same_day = seed_initial.seed_initial(settings, factory, today)
     assert not same_day.created and same_day.schedules_extended == 0
+    assert same_day.generated_password
+    assert same_day.generated_password != seeded.generated_password
 
     with factory.begin() as db:
+        for account in db.scalars(select(Account)):
+            if account.login_id in seed_initial.DEMO_PASSWORD_LOGINS:
+                assert verify_password(same_day.generated_password, account.password_hash)
+                assert not verify_password(seeded.generated_password, account.password_hash)
+            else:
+                assert account.password_hash == other_hashes[account.login_id]
         manifest = db.get(ReferenceData, seed_initial.SEED_VERSION)
         edited_id, untouched_id = [row["id"] for row in manifest.data["schedules"][:2]]
         edited = db.get(Resource, edited_id)
@@ -688,6 +790,7 @@ def test_rerun_reuses_reference_data_and_only_extends_unedited_schedules(seed_en
 
     refresh = seed_initial.seed_initial(settings, factory, today + timedelta(days=2))
     assert not refresh.created
+    assert refresh.generated_password not in (None, seeded.generated_password, same_day.generated_password)
     assert (refresh.schedules_extended, refresh.schedules_skipped) == (31, 1)
     assert refresh.available_through == today + timedelta(days=15)
     with factory() as db:
@@ -695,6 +798,140 @@ def test_rerun_reuses_reference_data_and_only_extends_unedited_schedules(seed_en
         assert len(db.get(Resource, untouched_id).data["availability"]) == 16
         assert set(db.scalars(select(Account.id))) == account_ids
         assert set(db.scalars(select(StoredFile.id))) == photo_ids
+
+
+def test_rerun_replaces_legacy_portfolio_photos_in_place(seed_environment, monkeypatch):
+    settings, factory = seed_environment
+    today = date(2030, 1, 1)
+    read_photo = seed_initial.seed_image
+    legacy_photos = {}
+    for name, color in (("faucet-before", "teal"), ("faucet-after", "navy")):
+        with Image.new("RGB", (320, 240), color) as image, io.BytesIO() as buffer:
+            image.save(buffer, "PNG")
+            legacy_photos[name] = buffer.getvalue()
+    legacy_hashes = {
+        name: hashlib.sha256(normalize_image(content)[0]).hexdigest()
+        for name, content in legacy_photos.items()
+    }
+    monkeypatch.setattr(seed_initial, "LEGACY_PHOTO_SHA256", {**seed_initial.LEGACY_PHOTO_SHA256, **legacy_hashes})
+
+    with monkeypatch.context() as legacy:
+        legacy.setattr(seed_initial, "seed_image", lambda name: legacy_photos[name] if name in legacy_photos else read_photo(name))
+        seed_initial.seed_initial(settings, factory, today)
+    with factory.begin() as db:
+        manifest = db.get(ReferenceData, seed_initial.SEED_VERSION)
+        manifest.data = {key: value for key, value in manifest.data.items() if key != "photoSeedVersion"}
+        original_keys = dict(db.execute(select(StoredFile.id, StoredFile.key)).all())
+
+    loaded = []
+
+    def fail_on_second_photo(name):
+        if loaded:
+            raise seed_initial.SeedError("시드 사진 읽기 실패")
+        loaded.append(name)
+        return read_photo(name)
+
+    with monkeypatch.context() as failure:
+        failure.setattr(seed_initial, "seed_image", fail_on_second_photo)
+        with pytest.raises(seed_initial.SeedError, match="시드 사진 읽기 실패"):
+            seed_initial.seed_initial(settings, factory, today)
+    with factory() as db:
+        assert dict(db.execute(select(StoredFile.id, StoredFile.key)).all()) == original_keys
+        assert "photoSeedVersion" not in db.get(ReferenceData, seed_initial.SEED_VERSION).data
+    assert {path.name for path in settings.storage_dir.iterdir()} == set(original_keys.values())
+
+    updated = seed_initial.seed_initial(settings, factory, today)
+    assert updated.photos_updated == 2
+    assert seed_initial.seed_initial(settings, factory, today).photos_updated == 0
+    store = FileStore(settings.storage_dir)
+    with factory() as db:
+        files = dict(db.execute(select(StoredFile.id, StoredFile.key)).all())
+        assert files.keys() == original_keys.keys()
+        assert {store.read(key) for media_id, key in files.items() if key != original_keys[media_id]} == {
+            normalize_image(read_photo(name))[0] for name in legacy_photos
+        }
+    assert run_once(factory, settings)
+    assert {path.name for path in settings.storage_dir.iterdir()} == set(files.values())
+
+
+def test_upgrade_from_legacy_seed_adds_scenario_data(seed_environment):
+    settings, factory = seed_environment
+    today = date(2030, 1, 1)
+    # 이전 버전 seed_initial(30명 기사만 적재, scenariosSeeded 없음) 상태를 재현한다.
+    seeded = seed_initial.seed_initial(settings, factory, today)
+    assert seeded.created
+    with factory.begin() as db:
+        manifest = db.get(ReferenceData, seed_initial.SEED_VERSION)
+        legacy_logins = {
+            seed_initial.SCENARIO1_USER_LOGIN,
+            seed_initial.SCENARIO1_TECH_A_LOGIN,
+            seed_initial.SCENARIO1_TECH_C_LOGIN,
+            seed_initial.SCENARIO2_USER_LOGIN,
+            seed_initial.SCENARIO2_COMPETITOR_USER_LOGIN,
+            seed_initial.SCENARIO3_USER_LOGIN,
+        }
+        legacy_ids = set(db.scalars(select(Account.id).where(Account.login_id.in_(legacy_logins))))
+        removed_tech_ids = set(db.scalars(select(Resource.id).where(Resource.kind == "TECHNICIAN", Resource.owner_id.in_(legacy_ids))))
+        for row in list(db.scalars(select(Resource).where(
+            (Resource.owner_id.in_(legacy_ids)) | (Resource.technician_id.in_(removed_tech_ids))
+        ))):
+            db.delete(row)
+        for row in list(db.scalars(select(Account).where(Account.id.in_(legacy_ids)))):
+            db.delete(row)
+        for ref_id in (
+            f"{seed_initial.SEED_VERSION}-duration-sliding-door",
+            f"{seed_initial.SEED_VERSION}-duration-wallpaper-stain",
+            f"{seed_initial.SEED_VERSION}-source-door-a",
+            f"{seed_initial.SEED_VERSION}-source-door-c",
+        ):
+            ref = db.get(ReferenceData, ref_id)
+            if ref:
+                db.delete(ref)
+        manifest.data = {
+            "availableThrough": manifest.data["availableThrough"],
+            "schedules": manifest.data["schedules"][:30],
+        }
+
+    upgraded = seed_initial.seed_initial(settings, factory, today)
+    assert upgraded.upgraded and not upgraded.created
+    with factory() as db:
+        logins = set(db.scalars(select(Account.login_id)))
+        assert seed_initial.DEMO_PASSWORD_LOGINS <= logins
+        manifest = db.get(ReferenceData, seed_initial.SEED_VERSION)
+        assert manifest.data["scenariosSeeded"] is True
+        assert manifest.data["scenarioSeedVersion"] == seed_initial.SCENARIO_SEED_VERSION
+        assert len(manifest.data["schedules"]) == 32
+
+    # v1(scenariosSeeded=True, scenarioSeedVersion 없음) 상태에서도 민서·지훈 계정이 보강된다.
+    with factory.begin() as db:
+        for login_id in (seed_initial.SCENARIO1_USER_LOGIN, seed_initial.SCENARIO2_USER_LOGIN):
+            row = db.scalar(select(Account).where(Account.login_id == login_id))
+            if row:
+                db.delete(row)
+        manifest = db.get(ReferenceData, seed_initial.SEED_VERSION)
+        manifest.data = {k: v for k, v in manifest.data.items() if k != "scenarioSeedVersion"}
+
+    v2_upgraded = seed_initial.seed_initial(settings, factory, today)
+    assert v2_upgraded.upgraded and not v2_upgraded.created
+    app = create_app(settings, factory)
+    with APIClient(app) as minseo, APIClient(app) as jihoon, APIClient(app) as seoyeon:
+        login(minseo, seed_initial.SCENARIO1_USER_LOGIN, password=v2_upgraded.generated_password)
+        login(jihoon, seed_initial.SCENARIO2_USER_LOGIN, password=v2_upgraded.generated_password)
+        assert result(minseo.get("/v1/auth/me"))["activeRole"] == "USER"
+        assert result(jihoon.get("/v1/auth/me"))["activeRole"] == "USER"
+
+        # 시드된 자가 해결 가이드·제조사 공식 AS 경로가 정상 조회된다.
+        login(seoyeon, seed_initial.SCENARIO3_USER_LOGIN, password=v2_upgraded.generated_password)
+        reqs = result(seoyeon.get("/v1/requests"))
+        seoyeon_req = result(seoyeon.get(f"/v1/requests/{reqs['items'][0]['requestId']}"), "RequestDTO")
+        solutions = result(
+            seoyeon.get(f"/v1/work-items/{seoyeon_req['workItems'][0]['workItemId']}/solutions"),
+            "SolutionsDTO",
+        )
+        assert solutions["selfHelp"]["status"] == "AVAILABLE"
+        assert len(solutions["selfHelp"]["guides"]) >= 1
+        assert solutions["officialService"]["status"] == "AVAILABLE"
+        assert any(r["productSpecific"] for r in solutions["officialService"]["routes"])
 
 
 def test_seed_failure_rolls_back_database_and_images(seed_environment, monkeypatch):

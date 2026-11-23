@@ -112,6 +112,19 @@ def dialogue(ctx, root, body):
     return views.dialogue(ctx, root)
 
 
+def latest_comparisons(ctx, root):
+    by_group = {}
+    for job in ctx.find("AI_JOB", request_id=root.id):
+        if (
+            job.data.get("type") == "PHOTO_COMPARISON"
+            and job.status == "SUCCEEDED"
+            and job.data.get("sourceRevision") == root.data["sourceRevision"]
+            and (job.data.get("result") or {}).get("comparison")
+        ):
+            by_group[job.data["photoGroupId"]] = copy.deepcopy(job.data["result"]["comparison"])
+    return list(by_group.values())
+
+
 def snapshot(ctx, row):
     root = ctx.get(row.request_id, "REQUEST")
     item = ctx.get(row.item_id, "WORK_ITEM") if row.item_id else None
@@ -121,6 +134,14 @@ def snapshot(ctx, row):
     group = ctx.get(row.data["photoGroupId"]) if row.data["photoGroupId"] else None
     if group:
         photos = [ctx.get(p) for p in group.data["comparisonPhotoIds"]]
+    candidates = technicians.candidates(ctx, item) if row.data["type"] == "CASE_MATCHING" else []
+    candidate_ids = {c["technician"]["technicianId"] for c in candidates}
+    cases = (
+        [views.case(ctx, c) for c in ctx.find("CASE") if c.technician_id in candidate_ids]
+        if row.data["type"] == "CASE_MATCHING"
+        else []
+    )
+    comparisons = latest_comparisons(ctx, root) if row.data["type"] == "REPORT_DRAFT" else []
     prompt = {"type": row.data["type"], "symptom": root.data["symptom"], "context": root.data["context"],
               "item": views.work_item(ctx, item) if item else None, "dialogue": views.dialogue(ctx, root),
               "photos": [views.photo(ctx, p) for p in photos],
@@ -131,7 +152,9 @@ def snapshot(ctx, row):
                                if r.status in ("COMPLETED", "STOPPED") and (not item or r.item_id == item.id)],
               "group": group.data | {"groupId": group.id} if group else None,
               "guide": reference.guidance(ctx, "SELF_HELP", item.data["facts"]["product"]) if row.data["guideId"] else None,
-              "cases": [views.case(ctx, c) for c in ctx.find("CASE")] if row.data["type"] == "CASE_MATCHING" else []}
+              "candidates": candidates,
+              "cases": cases,
+              "comparisons": comparisons}
     from app.services.handover import scrub_visit_details
     prompt = scrub_visit_details(ctx, root, prompt)
     # Structured and known textual address/contact values are excluded.

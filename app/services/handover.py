@@ -34,9 +34,23 @@ def report_view(ctx, item):
             "current": row.data.get("current"), "confirmedAt": row.data.get("confirmedAt")}
 
 
+def latest_regions_for_photo(ctx, row):
+    from app.services.ai import latest_comparisons
+    root = ctx.get(row.request_id, "REQUEST")
+    regions = []
+    for comparison in latest_comparisons(ctx, root):
+        if comparison.get("status") != "CHANGED":
+            continue
+        for region in comparison.get("regions", []):
+            if region.get("photoId") == row.id:
+                regions.append(copy.deepcopy(region))
+    return regions
+
+
 def photo_evidence(ctx, row):
     return {"photoId": row.id, "media": views.media(ctx.file_for(row)),
-            "capturedOn": row.data["capturedOn"], "observation": row.data.get("description") or "관찰 설명 미입력", "regions": []}
+            "capturedOn": row.data["capturedOn"], "observation": row.data.get("description") or "관찰 설명 미입력",
+            "regions": latest_regions_for_photo(ctx, row)}
 
 
 def edit_report(ctx, item, body):

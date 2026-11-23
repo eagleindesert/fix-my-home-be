@@ -57,6 +57,20 @@ def render_pdf(content, images, font_path):
         with Image.open(io.BytesIO(data)) as source:
             image = source.convert("RGB")
             image.thumbnail((1100, 900))
+        regions = photo.get("regions") or []
+        if regions:
+            overlay = ImageDraw.Draw(image)
+            width, height = image.size
+            for index, region in enumerate(regions, 1):
+                x1, y1, x2, y2 = region["box"]
+                rect = (
+                    int(x1 * width),
+                    int(y1 * height),
+                    int(x2 * width),
+                    int(y2 * height),
+                )
+                overlay.rectangle(rect, outline=(206, 80, 64), width=4)
+                overlay.text((rect[0] + 6, max(2, rect[1] - 28)), f"#{index}", font=font, fill=(206, 80, 64))
         if y+image.height+100 > 1684:
             next_page()
         paragraph(f"촬영일: {photo['capturedOn'] or '미확인'}")
@@ -64,6 +78,9 @@ def render_pdf(content, images, font_path):
         y += image.height+15
         if photo.get("observation"):
             paragraph(photo["observation"])
+        for index, region in enumerate(regions, 1):
+            if region.get("description"):
+                paragraph(f"관찰 영역 #{index}: {region['description']}")
     pages.append(page)
     output = io.BytesIO()
     pages[0].save(output, format="PDF", save_all=True, append_images=pages[1:], resolution=150,

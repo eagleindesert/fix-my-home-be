@@ -11,6 +11,8 @@
 !scripts/
 !scripts/etc/
 !scripts/etc/prepare_image.py
+!scripts/seed_images/
+!scripts/seed_images/*.jpg
 **/__pycache__/
 **/*.pyc
 **/.env

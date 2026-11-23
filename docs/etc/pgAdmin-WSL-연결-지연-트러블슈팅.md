@@ -17,7 +17,7 @@ Windows에 설치한 pgAdmin 4 `9.19`에서 WSL의 PostgreSQL 컨테이너에 �
 | 이전 사용 환경 | 같은 WSL의 다른 PostgreSQL 컨테이너에서는 지연을 느끼지 못함 |
 | 클라우드 비교 환경 | 클라우드 Ubuntu의 pgAdmin에서 해당 클라우드 DB에 `localhost`로 접속하면 빠름 |
 
-저장소의 [로컬 Compose](../../docker-compose.yaml)는 DB 포트를 `5432:5432`로 공개한다. [배포 Compose](../../docker-compose-deployment.yaml)의 기본 매핑은 `5434:5432`이므로, 다른 실행 환경에 적용할 때는 실제 공개 포트를 확인한다.
+PostgreSQL의 호스트 접속 주소는 로컬 환경에서 `127.0.0.1:5432`, 배포 환경에서 `127.0.0.1:5434`다. [로컬 Compose](../../docker-compose.yaml), [배포 Compose](../../docker-compose-deployment.yaml)
 
 클라우드 비교는 다른 DB와 다른 접속 경로를 사용했다. 이번 해결을 판단한 기준은 같은 Windows pgAdmin에서 같은 WSL DB를 대상으로 Host name/address를 변경한 전후 결과다.
 

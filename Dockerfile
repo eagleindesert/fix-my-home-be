@@ -34,6 +34,7 @@ COPY --from=target-uv /uv /usr/local/bin/uv
 COPY --from=compiler /build/.venv/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
 COPY --from=compiler /usr/share/fonts/truetype/nanum/NanumGothic.ttf /usr/share/fonts/truetype/nanum/NanumGothic.ttf
 COPY --from=compiler --chown=10001:10001 /out/app /app
+COPY scripts/seed_images/*.jpg /app/scripts/seed_images/
 COPY --from=compiler --chown=10001:10001 /out/runtime /var/lib/fmh
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 UV_PYTHON_DOWNLOADS=never \

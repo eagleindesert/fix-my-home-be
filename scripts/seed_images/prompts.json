@@ -1,0 +1,156 @@
+{
+  "tool": "Built-in ImageGen",
+  "photos": {
+    "faucet-before.jpg": {
+      "promptLines": [
+        "Use case: photorealistic-natural.",
+        "Asset type: single 4:3 landscape phone photo for a fictional home repair demo in Seoul. Documentary repair record, natural texture and plausible construction. Fill the frame with the subject. No people, writing, logo, overlay, label, border, or collage.",
+        "In an ordinary Korean apartment, look slightly down at the base of an older chrome gooseneck kitchen faucet mounted at the back of a stainless steel sink, in front of light gray backsplash tile. A few drips trail from the worn base collar into a small shallow puddle around it. Make the leak readable and leave enough context to recognize the sink and faucet. Soft side daylight."
+      ]
+    },
+    "faucet-after.jpg": {
+      "reference": "faucet-before.jpg",
+      "promptLines": [
+        "Use case: precise-object-edit.",
+        "Asset type: one realistic 4:3 landscape smartphone photo for a fictional home repair record.",
+        "Input image: Image 1 is the source photo to edit.",
+        "Keep the same apartment, object location, camera position, composition and natural light. Keep ordinary wear outside the repair. Preserve the phone photo realism and surrounding detail. No people, writing, logos, overlay, labels, borders, or collage.",
+        "Replace the old watermarked, leaking chrome faucet with a simple new polished chrome gooseneck faucet with a single lever on the right, mounted through the same hole. Make the deck dry at the new base with no pooling and no leaking at the fittings. Keep the exact sink, backsplash grout, rack, plant and lighting unchanged."
+      ]
+    },
+    "window-lock-before.jpg": {
+      "promptLines": [
+        "Use case: photorealistic-natural.",
+        "Asset type: single 4:3 landscape phone photo for a fictional home repair demo in Seoul. Documentary repair record, natural texture and plausible construction. Fill the frame with the subject. No people, writing, logo, overlay, label, border, or collage.",
+        "Tight oblique phone photo of the meeting stiles of a white uPVC sliding balcony window. An off-white surface-mounted crescent latch at hand height has a snapped lever tip and the adjoining keeper cannot catch. Make the hardware clearly visible near center, with neighboring tracks, glazing and chipped finish providing context. Neutral daylight indoors."
+      ]
+    },
+    "window-lock-after.jpg": {
+      "reference": "window-lock-before.jpg",
+      "promptLines": [
+        "Use case: precise-object-edit.",
+        "Asset type: one realistic 4:3 landscape smartphone photo for a fictional home repair record.",
+        "Input image: Image 1 is the source photo to edit.",
+        "Keep the same apartment, object location, camera position, composition and natural light. Keep ordinary wear outside the repair. Preserve the phone photo realism and surrounding detail. No people, writing, logos, overlay, labels, borders, or collage.",
+        "Replace the snapped crescent locking lever assembly and its keeper on the same white sliding balcony window with an intact matching cream-white set. The new lever has a smoothly finished, gently rounded complete tip, and is clearly aligned with the keeper. Keep the window frames, chipped paint, exterior buildings and tracks from the reference."
+      ]
+    },
+    "wallpaper-seam-before.jpg": {
+      "promptLines": [
+        "Use case: photorealistic-natural.",
+        "Asset type: single 4:3 landscape phone photo for a fictional home repair demo in Seoul. Documentary repair record, natural texture and plausible construction. Fill the frame with the subject. No people, writing, logo, overlay, label, border, or collage.",
+        "Close, near-frontal view of pale warm-gray woven vinyl wallpaper inside an ordinary apartment. A 20-centimeter length of one vertical seam has visibly lifted and curled a little, with a narrow dark shadow along the loose paper edge and a clean wall around it. Soft raking daylight; frame the textured surface so the seam is clear."
+      ]
+    },
+    "wallpaper-seam-after.jpg": {
+      "reference": "wallpaper-seam-before.jpg",
+      "promptLines": [
+        "Use case: precise-object-edit.",
+        "Asset type: one realistic 4:3 landscape smartphone photo for a fictional home repair record.",
+        "Input image: Image 1 is the source photo to edit.",
+        "Keep the same apartment, object location, camera position, composition and natural light. Keep ordinary wear outside the repair. Preserve the phone photo realism and surrounding detail. No people, writing, logos, overlay, labels, borders, or collage.",
+        "Repair exactly the lifted curled section of the vertical wallpaper seam. It now lies flush with the wall, leaving only a tight faint seam line and no shadowed gap. Keep the same wonky weave texture and color on both sides, and keep the same crop and direction of light so this is a direct before/after comparison."
+      ]
+    },
+    "lighting-before.jpg": {
+      "promptLines": [
+        "Use case: photorealistic-natural.",
+        "Asset type: single 4:3 landscape phone photo for a fictional home repair demo in Seoul. Documentary repair record, natural texture and plausible construction. Fill the frame with the subject. No people, writing, logo, overlay, label, border, or collage.",
+        "Phone pointed upward at a dated round flush-mount kitchen LED ceiling fixture with a frosted diffuser in an ordinary off-white apartment ceiling. The fixture is switched on, but one segment of its diffuser glows unevenly and dimly with a dark patch. Include some ceiling and a narrow upper wall edge to establish scale. Natural modest apartment, neutral daylight from nearby window."
+      ]
+    },
+    "lighting-after.jpg": {
+      "reference": "lighting-before.jpg",
+      "promptLines": [
+        "Use case: precise-object-edit.",
+        "Asset type: one realistic 4:3 landscape smartphone photo for a fictional home repair record.",
+        "Input image: Image 1 is the source photo to edit.",
+        "Keep the same apartment, object location, camera position, composition and natural light. Keep ordinary wear outside the repair. Preserve the phone photo realism and surrounding detail. No people, writing, logos, overlay, labels, borders, or collage.",
+        "Replace only the faulty round ceiling light with a slim simple newly installed round white LED flush-mount fixture of about the same diameter in the same location. Its broad frosted diffuser is visibly on, uniformly lit and neutral white edge to edge. Keep the ceiling and nearby room details aligned to the reference."
+      ]
+    },
+    "washer-drain-before.jpg": {
+      "promptLines": [
+        "Use case: photorealistic-natural.",
+        "Asset type: single 4:3 landscape phone photo for a fictional home repair demo in Seoul. Documentary repair record, natural texture and plausible construction. Fill the frame with the subject. No people, writing, logo, overlay, label, border, or collage.",
+        "Low, mid-close view of the lower front of a white front-loading washing machine in a compact tiled Korean laundry nook. Through the round glass door a shallow band of standing water is visible at the bottom of the drum following a drain failure. A small lower service cover is shut. Catch the water line so it is unmistakable; household phone photo, diffuse daylight."
+      ]
+    },
+    "washer-drain-after.jpg": {
+      "reference": "washer-drain-before.jpg",
+      "promptLines": [
+        "Use case: precise-object-edit.",
+        "Asset type: one realistic 4:3 landscape smartphone photo for a fictional home repair record.",
+        "Input image: Image 1 is the source photo to edit.",
+        "Keep the same apartment, object location, camera position, composition and natural light. Keep ordinary wear outside the repair. Preserve the phone photo realism and surrounding detail. No people, writing, logos, overlay, labels, borders, or collage.",
+        "Document the same machine after its drain has been cleared. Remove only the shallow pool and horizontal waterline inside the drum. Show the empty bottom of the metal drum through the same closed round glass, with a few ordinary residual droplets. Keep the exact body, service cover, floor and window unchanged."
+      ]
+    },
+    "sliding-door-roller-before.jpg": {
+      "promptLines": [
+        "Use case: photorealistic-natural.",
+        "Asset type: single 4:3 landscape phone photo for a fictional home repair demo in Seoul. Documentary repair record, natural texture and plausible construction. Fill the frame with the subject. No people, writing, logo, overlay, label, border, or collage.",
+        "Low close-up inspection photo of the bottom corner of a partially disengaged muted green-gray framed living-room sliding door panel, a silver floor track and matte oak-look floor in a Korean apartment. The small old lower roller assembly is naturally exposed at the corner during a service check; the dark wheel has a visibly worn flat edge and nearby floor shows one light old scrape. Faint window light. Keep the wheel central and mechanically plausible."
+      ]
+    },
+    "sliding-door-roller-after.jpg": {
+      "reference": "sliding-door-roller-before.jpg",
+      "promptLines": [
+        "Use case: precise-object-edit.",
+        "Asset type: one realistic 4:3 landscape smartphone photo for a fictional home repair record.",
+        "Input image: Image 1 is the source photo to edit.",
+        "Keep the same apartment, object location, camera position, composition and natural light. Keep ordinary wear outside the repair. Preserve the phone photo realism and surrounding detail. No people, writing, logos, overlay, labels, borders, or collage.",
+        "Replace the aged lower roller and its worn flat black wheel with a clean correctly seated small round dark nylon wheel in a new silver replacement bracket of the same size on the same green sliding door. It rides on the existing track with a small even gap between the panel edge and rail. Preserve the old paint and scrape marks from before, as these are the same door and floor."
+      ]
+    },
+    "sliding-door-track-before.jpg": {
+      "promptLines": [
+        "Use case: photorealistic-natural.",
+        "Asset type: single 4:3 landscape phone photo for a fictional home repair demo in Seoul. Documentary repair record, natural texture and plausible construction. Fill the frame with the subject. No people, writing, logo, overlay, label, border, or collage.",
+        "A low close-up along the aluminum bottom track of a warm wood-framed sliding living-room door in a Korean apartment. One short section of the thin guide lip near the middle of the image is visibly bent upward and inward, with slight scuffing. Keep the surrounding beige floor and straight sections of the track in view so the local kink is easy to identify. Overcast daylight."
+      ]
+    },
+    "sliding-door-track-after.jpg": {
+      "reference": "sliding-door-track-before.jpg",
+      "promptLines": [
+        "Use case: precise-object-edit.",
+        "Asset type: one realistic 4:3 landscape smartphone photo for a fictional home repair record.",
+        "Input image: Image 1 is the source photo to edit.",
+        "Keep the same apartment, object location, camera position, composition and natural light. Keep ordinary wear outside the repair. Preserve the phone photo realism and surrounding detail. No people, writing, logos, overlay, labels, borders, or collage.",
+        "Repair the local raised kink of the existing metal bottom guide rail: straighten that short section so its lip now follows the same straight, level line as the rest. Leave the old surface wear and same rail geometry elsewhere. Keep the existing wood door, beige floor and camera angle exactly aligned."
+      ]
+    },
+    "hapjeong-faucet.jpg": {
+      "promptLines": [
+        "Use case: photorealistic-natural.",
+        "Asset type: single 4:3 landscape phone photo for a fictional home repair demo in Seoul. Documentary repair record, natural texture and plausible construction. Fill the frame with the subject. No people, writing, logo, overlay, label, border, or collage.",
+        "Casual resident's photograph of a slightly dated single-lever chrome faucet above a stainless kitchen sink in a modest apartment in Hapjeong, Seoul. Use a shallow three-quarter overhead angle, warm off-white backsplash tile, ordinary minor scale buildup around the faucet base. The faucet and basin are clear and the area is dry. Diffuse natural daylight."
+      ]
+    },
+    "wallpaper-stain-day-1.jpg": {
+      "promptLines": [
+        "Use case: photorealistic-natural.",
+        "Asset type: single 4:3 landscape phone photo for a fictional home repair demo in Seoul. Documentary repair record, natural texture and plausible construction. Fill the frame with the subject. No people, writing, logo, overlay, label, border, or collage.",
+        "A tenant's near-frontal phone photo of a living-room wall at 8 AM in a modest Korean apartment. In the upper-right half is the lower-left corner of a white PVC window frame and sill. Cream woven vinyl wallpaper fills the left and bottom of the composition. On the wallpaper below and slightly left of the sill, center a faint, subtle irregular tan water discoloration at about 35% from the left and 58% from the top. The spot should be confined to the upper portion of the surrounding wall, with plenty of visible wallpaper underneath for a later downward expansion. Maintain ordinary cool morning daylight and credible framing, with no furniture."
+      ]
+    },
+    "wallpaper-stain-day-3.jpg": {
+      "reference": "wallpaper-stain-day-1.jpg",
+      "promptLines": [
+        "Use case: lighting-weather.",
+        "Asset type: one realistic 4:3 landscape smartphone photo for a tenant's wall-stain timeline.",
+        "Input image: Image 1 is the exact living-room wall and window to photograph again. Show the tenant taking a closer handheld shot at 9 PM on a rainy night, with warm dim indoor light and the window dark. Move closer to the same faint irregular tan discoloration below and to the left of the window and use a slightly oblique viewpoint, so only a little of the same lower-left window frame remains in the upper right. Preserve the original cream vinyl weave, framing details and overall stain identity. The stain looks somewhat darker in this light. Low-light phone texture is natural. No people, text, labels or collage."
+      ]
+    },
+    "wallpaper-stain-day-4.jpg": {
+      "reference": "wallpaper-stain-day-1.jpg",
+      "promptLines": [
+        "Use case: precise-object-edit.",
+        "Asset type: one realistic 4:3 landscape smartphone photo for a fictional home repair record.",
+        "Input image: Image 1 is the source photo to edit.",
+        "Keep the same apartment, object location, camera position, composition and natural light. Keep ordinary wear outside the repair. Preserve the phone photo realism and surrounding detail. No people, writing, logos, overlay, labels, borders, or collage.",
+        "Recreate exactly the 8 AM frontal angle and distance of the same living-room wall. Locate the faint discoloration below and slightly left of the lower-left corner of the white window. Extend its lower edge down by about 15 centimeters into the blank cream wallpaper, making an irregular tan-brown water tide mark with a subtle feathered darker edge below the original spot. The changed area should be clear at thumbnail size but recognizably water discoloration, not mold colonies. Keep the original upper edge, wall texture, white window and outside scene aligned pixel-for-pixel as nearly as possible."
+      ]
+    }
+  }
+}

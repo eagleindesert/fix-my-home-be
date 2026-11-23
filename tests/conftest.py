@@ -64,8 +64,8 @@ def client(environment):
         yield client
 
 
-def login(client, login_id="owner", role="USER"):
-    response = client.post("/v1/auth/login", json={"loginId": login_id, "password": "testing-password-123"})
+def login(client, login_id="owner", role="USER", *, password="testing-password-123"):
+    response = client.post("/v1/auth/login", json={"loginId": login_id, "password": password})
     assert response.status_code == 200, response.text
     if role != "USER":
         response = client.patch("/v1/auth/role", json={"role": role})

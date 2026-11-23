@@ -23,7 +23,7 @@ services:
     platform: ${LOCAL_IMAGE_PLATFORM:-linux/amd64}
     # 배포용 DB 포트를 병합하지 않고 로컬 포트 하나로 교체한다.
     ports: !override
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
 
   migrate:
     <<: *local-application
