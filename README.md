@@ -28,6 +28,33 @@ uv run pytest -q
 
 Windows pgAdmin에서 WSL의 로컬 PostgreSQL 컨테이너를 조회할 때는 `127.0.0.1:5432`를 사용합니다. `localhost` 접속 시 `Obtaining connection` 단계가 약 5초 지연됐고, IPv4 주소를 직접 지정해 해결한 과정은 [pgAdmin WSL 연결 지연 트러블슈팅](docs/etc/pgAdmin-WSL-연결-지연-트러블슈팅.md)에 정리했습니다.
 
+### 초기 시연 데이터
+
+마이그레이션이 끝난 개발·테스트 DB에 [초기 적재 스크립트](scripts/seed_initial.py)를 실행합니다. 서울 6개 동의 지역·모의 이동시간표·작업 소요시간(`미닫이문 수리`, `벽지 물자국 점검` 포함)과 함께 5개 분야의 기사 32명, 방문 가능 일정, 합성 이미지가 있는 모의 사례 7건, 그리고 [대표 시연 시나리오](docs/시연-시나리오.md) 3종에 필요한 사전 일정·비교용 합정동 요청·서연의 벽지 물자국 경과 및 확정 예약 데이터를 함께 준비합니다.
+
+```bash
+# 백엔드 디렉터리에서 직접 실행할 때는 API와 동일한 DB 및 미디어 저장 경로를 사용합니다.
+uv run --no-env-file python -m scripts.seed_initial
+
+# 상위 작업 디렉터리에서 실행하는 경우
+uv run --no-env-file fix-my-home-be/scripts/seed_initial.py
+
+# 실행 중인 로컬 Compose에서는 be 컨테이너의 DB 및 공유 미디어 볼륨을 사용합니다.
+docker compose -f docker-compose.yaml exec -T be \
+  uv run --no-project --no-sync --no-env-file --python /usr/local/bin/python \
+  python - < scripts/seed_initial.py
+```
+
+파일 경로로 실행하면 미디어 저장 경로 등 상대 경로는 백엔드 디렉터리를 기준으로 해석합니다.
+
+시나리오별 로그인 계정과 상세 흐름은 [시연 시나리오](docs/시연-시나리오.md)를 참고하세요. 첫 적재 시 시연 계정들에 공통 적용되는 자동 발급 비밀번호가 표시되며, 실행 환경에 `FMH_SEED_PASSWORD`를 지정하면 해당 값을 사용합니다.
+
+- **기본·시나리오 2 (동선 할인 예약)**: 기사 `demo-tech-01`(연남동·서교동·합정동, 목요일 `13:00~13:45` 연남동 / `16:00~16:45` 서교동 기존 방문), 비교용 합정동 요청 `demo-user-hapjeong`
+- **시나리오 1 (사례 기반 기사 추천)**: 연남동 문·창호 기사 A `demo-tech-door-a`(하부 롤러 모의 사례), 기사 B `demo-tech-02`(창문 잠금장치 모의 사례), 기사 C `demo-tech-door-c`(하단 레일 모의 사례, 토요일 `14:00~17:00` 기존 작업)
+- **시나리오 3 (경과 분석·기사 인계)**: 임차인 서연 `demo-user-seoyeon`(벽지 물자국 3시점 사진·기록·묶음 및 확정 예약), 담당 기사 `demo-tech-03`
+
+방문 가능 일정은 실행일을 포함해 한국 시간 기준 14일치입니다. 재실행 시 초기 적재 이후 변경되지 않은 일정에 새 날짜와 반복 시연 외부 일정을 이어 붙입니다.
+
 ## Swagger UI와 API 명세
 
 서버 실행 후 Swagger UI에서 API를 확인하고 호출할 수 있습니다. Python 직접 실행과 로컬 Compose는 [localhost:8000/docs](http://localhost:8000/docs), 배포 Compose는 배포 호스트의 [localhost:8002/docs](http://localhost:8002/docs)를 사용합니다. FastAPI 내부 경로에는 `/api`를 붙이지 않습니다.

@@ -94,7 +94,7 @@ def create_request(client, key="request-key"):
                              data={"metadata": json.dumps(metadata)}, files=[("files", ("sink.png", picture(), "image/png"))]), "RequestDTO", 201)
 
 
-def setup_item(client, root):
+def setup_item(client, root, *, visit_address="서울특별시 테스트구 테스트동 101호"):
     item = root["workItems"][0]
     start = (now()+timedelta(days=1)).replace(hour=5, minute=0, second=0, microsecond=0)
     preference = {"mode": "FLEXIBLE", "fixedStartAt": None, "ranges": [{"startAt": iso(start-timedelta(hours=2)), "endAt": iso(start+timedelta(hours=4))}]}
@@ -104,5 +104,9 @@ def setup_item(client, root):
     item = result(client.put(f"/v1/work-items/{item['workItemId']}/confirmation", headers={"Idempotency-Key": '"confirm-item"'},
                             json={"expectedRevision": item["revision"], "sourceRevision": item["sourceRevision"], "summary": summary, "fields": ["PLUMBING"], "confirmed": True}), "WorkItemDTO")
     root = result(client.get(f"/v1/requests/{root['requestId']}"), "RequestDTO")
-    root = result(client.put(f"/v1/requests/{root['requestId']}/visit-details", json={"expectedRevision": root["revision"], "visitDetails": {"address": "서울특별시 테스트구 테스트동 101호", "contact": "010-1234-5678"}, "confirmed": True}), "RequestDTO")
+    root = result(client.put(f"/v1/requests/{root['requestId']}/visit-details", json={
+        "expectedRevision": root["revision"],
+        "visitDetails": {"address": visit_address, "contact": "010-1234-5678"},
+        "confirmed": True,
+    }), "RequestDTO")
     return root, item, start
