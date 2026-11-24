@@ -161,7 +161,7 @@ def snapshot(ctx, row):
     return prompt, [{"photoId": p.id, "bytes": ctx.files.read(ctx.file_for(p).key)} for p in photos]
 
 
-def accept_result(ctx, row, result):
+def accept_result(ctx, row, result, *, evaluated_cases):
     validate_type(result, "AiResultDTO", "result", output=True)
     kind = row.data["type"]
     expected = {"DIAGNOSIS": "summary", "QUESTION": "question", "GUIDE_EXPLANATION": "guideExplanation",
@@ -205,6 +205,7 @@ def accept_result(ctx, row, result):
             require(region["width"] == file.width and region["height"] == file.height, "AI_INVALID_OUTPUT", "원본 사진 크기가 다릅니다.")
     if kind == "CASE_MATCHING":
         available = {c["technician"]["technicianId"]: c for c in technicians.candidates(ctx, item)}
+        case_revisions = {case["caseId"]: case["revision"] for case in evaluated_cases}
         recommendations = result["caseRecommendations"]
         verified = []
         seen_technicians = set()
@@ -219,6 +220,11 @@ def accept_result(ctx, row, result):
                 case = ctx.get(evidence["case"]["caseId"], "CASE")
                 require(case.technician_id == tech_id and case.id not in seen and type(evidence["score"]) is int and
                         1 <= evidence["score"] <= 5 and evidence["evidence"], "AI_INVALID_OUTPUT", "사례 점수·근거가 유효하지 않습니다.")
+                require(case.id in case_revisions, "AI_INVALID_OUTPUT", "평가에 제공된 사례가 아닙니다.")
+                require(
+                    str(case.revision) == case_revisions[case.id],
+                    "STALE_SOURCE", "평가 중 사례가 변경되었습니다.",
+                )
                 seen.add(case.id)
                 evidence["case"] = views.case(ctx, case)
             scored = sorted([c for c in scored if c["score"] >= 3], key=lambda c: (-c["score"], c["case"]["caseId"]))[:3]

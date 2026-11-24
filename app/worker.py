@@ -6,7 +6,7 @@ import signal
 import time
 from datetime import timedelta
 
-from openai import APIConnectionError, APIStatusError, APITimeoutError, RateLimitError
+from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAIError, RateLimitError
 from sqlalchemy import or_, select
 
 from app import ai_provider
@@ -16,11 +16,13 @@ from app.errors import DomainError
 from app.observability import configure_logging
 from app.pdf import render_pdf
 from app.security import Actor
-from app.services import ai, deletion, handover
+from app.services import ai, deletion, handover, portfolio_analysis
 from app.services.context import Context
 from app.time_rules import as_utc, iso
 
 logger = logging.getLogger("fmh.worker")
+PORTFOLIO_TIMEOUT_SECONDS = 15
+CASE_EVALUATION_RESERVE_SECONDS = 30
 
 
 def context(db, row, settings):
@@ -55,6 +57,36 @@ def claim(factory, settings):
         return row.id, token, job.kind
 
 
+def _portfolio_observations(factory, settings, prompt, deadline):
+    if not settings.openai_model or not settings.openai_api_key.get_secret_value():
+        return {}
+    with factory() as db:
+        time_left = (deadline - now()).total_seconds()
+        observations, pending = portfolio_analysis.snapshot(
+            Context(db, None, settings), prompt,
+            analyze_missing=time_left > CASE_EVALUATION_RESERVE_SECONDS,
+        )
+    timeout = min(
+        PORTFOLIO_TIMEOUT_SECONDS,
+        (deadline - now()).total_seconds() - CASE_EVALUATION_RESERVE_SECONDS,
+    )
+    if not pending or timeout <= 0:
+        return observations
+
+    try:
+        descriptions = ai_provider.describe_portfolio(settings, pending, timeout)
+    except (DomainError, OpenAIError) as error:
+        logger.warning("portfolio_analysis_failed", extra={"fields": {"errorType": type(error).__name__}})
+        return observations
+
+    with factory() as db, db.begin():
+        lock(db, "portfolio-analysis-publish")
+        ctx = Context(db, None, settings)
+        portfolio_analysis.store(ctx, pending, descriptions)
+        observations, _ = portfolio_analysis.snapshot(ctx, prompt, analyze_missing=False)
+    return observations
+
+
 def execute(factory, settings, claimed, provider=ai_provider.generate):
     resource_id, token, kind = claimed
     new_files = []
@@ -65,7 +97,8 @@ def execute(factory, settings, claimed, provider=ai_provider.generate):
                 ctx = context(db, row, settings)
                 if kind == "AI":
                     prompt, photos = ai.snapshot(ctx, row)
-                    remaining = (as_utc(job.deadline_at)-now()).total_seconds()-1
+                    deadline = as_utc(job.deadline_at)
+                    remaining = (deadline-now()).total_seconds()-1
                     if remaining <= 0:
                         raise DomainError("AI_DEADLINE_EXCEEDED", "접수 후 60초 제한을 초과했습니다.")
                 else:
@@ -75,6 +108,11 @@ def execute(factory, settings, claimed, provider=ai_provider.generate):
                     content = copy.deepcopy(delivery.data["content"])
                     images = {p["media"]["mediaId"]: ctx.files.read(db.get(StoredFile, p["media"]["mediaId"]).key)
                               for p in content["photos"]}
+            if kind == "AI" and prompt["type"] == "CASE_MATCHING":
+                prompt["portfolioObservations"] = _portfolio_observations(factory, settings, prompt, deadline)
+                remaining = (deadline-now()).total_seconds()-1
+                if remaining <= 0:
+                    raise DomainError("AI_DEADLINE_EXCEEDED", "접수 후 60초 제한을 초과했습니다.")
             result = provider(settings, prompt, photos, remaining) if kind == "AI" else render_pdf(content, images, settings.pdf_font)
         with factory() as db, db.begin():
             lock(db, "worker-publish")
@@ -90,7 +128,7 @@ def execute(factory, settings, claimed, provider=ai_provider.generate):
                     raise DomainError("AI_DEADLINE_EXCEEDED", "접수 후 60초 제한을 초과했습니다.")
                 if not ai.source_current(ctx, row):
                     raise DomainError("STALE_SOURCE", "실행 중 근거 자료가 변경되었습니다.")
-                result = ai.accept_result(ctx, row, result)
+                result = ai.accept_result(ctx, row, result, evaluated_cases=prompt["cases"])
                 attempts = copy.deepcopy(row.data["attempts"])
                 attempts[-1]["finishedAt"] = iso(now())
                 row.status = "SUCCEEDED"

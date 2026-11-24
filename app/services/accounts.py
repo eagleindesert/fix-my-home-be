@@ -9,13 +9,13 @@ from app.security import Actor, hash_password
 from app.services.context import Context
 
 
-def create_account(db, settings, login_id, password, roles):
+def create_account(db, settings, login_id, password, roles, *, min_password_length=12):
     if not isinstance(login_id, str) or not 1 <= len(login_id) <= 128:
         invalid("로그인 ID는 1~128자여야 합니다.", "loginId")
     if login_id != login_id.strip():
         invalid("로그인 ID 앞뒤에 공백을 넣을 수 없습니다.", "loginId")
-    if not isinstance(password, str) or not password.strip() or len(password) < 12:
-        invalid("비밀번호는 12자 이상이어야 합니다.", "password")
+    if not isinstance(password, str) or not password.strip() or len(password) < min_password_length:
+        invalid(f"비밀번호는 {min_password_length}자 이상이어야 합니다.", "password")
     require(roles and set(roles) <= {"USER", "TECHNICIAN"},
             "VALIDATION_ERROR", "계정 역할을 확인하세요.", 422)
 

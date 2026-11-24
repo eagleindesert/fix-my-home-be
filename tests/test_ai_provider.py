@@ -74,18 +74,20 @@ def test_generate_uses_configured_base_url(monkeypatch, base_url, expected_url):
     assert requests[0].headers["authorization"] == "Bearer fake-test-key"
 
 
-def test_schema_and_photos_reach_the_function_request(monkeypatch, ai_settings):
+@pytest.mark.parametrize("job_type", ["DIAGNOSIS", "CASE_MATCHING"])
+def test_schema_and_photos_reach_the_function_request(monkeypatch, ai_settings, job_type):
     """SDK가 함수 스키마와 기존 사진 입력을 함께 전송하는지 확인한다."""
     requests = mock_completion(monkeypatch, [
         {"id": "rs_test", "type": "reasoning", "summary": []},
         tool_call(),
     ])
     photo = {"photoId": "test-photo", "bytes": b"synthetic-photo-bytes"}
-    result = ai_provider.generate(ai_settings, {"type": "DIAGNOSIS"}, [photo], timeout=10)
+    result = ai_provider.generate(ai_settings, {"type": job_type}, [photo], timeout=10)
     assert result == {"summary": None}
     assert len(requests) == 1
     body = json.loads(requests[0].content)
     assert "text" not in body
+    assert body["reasoning"] == {"effort": "low"}
     assert body["store"] is False
     assert body["parallel_tool_calls"] is False
     assert body["tool_choice"] == {"type": "function", "name": "submit_repair_assistance"}
@@ -97,12 +99,41 @@ def test_schema_and_photos_reach_the_function_request(monkeypatch, ai_settings):
     assert tool["parameters"]["additionalProperties"] is False
     assert "summary" in tool["parameters"]["required"]
     content = body["input"][0]["content"]
-    assert json.loads(content[0]["text"]) == {"type": "DIAGNOSIS"}
+    assert json.loads(content[0]["text"]) == {"type": job_type}
     assert content[1]["text"] == "photoId=test-photo"
     assert content[2] == {
         "type": "input_image",
         "image_url": "data:image/jpeg;base64," + base64.b64encode(photo["bytes"]).decode(),
     }
+
+
+def test_portfolio_analysis_uses_the_image_and_returns_observation_text(monkeypatch, ai_settings):
+    response = {"observations": [{"photoId": "portfolio-photo", "text": "  문 하단 금속 레일  "}]}
+    requests = mock_completion(monkeypatch, [
+        tool_call(json.dumps(response), name="submit_portfolio_observations"),
+    ])
+    photo = {"photoId": "portfolio-photo", "bytes": b"portfolio-image"}
+
+    assert ai_provider.describe_portfolio(ai_settings, [photo], timeout=10) == {
+        "portfolio-photo": "문 하단 금속 레일",
+    }
+
+    body = json.loads(requests[0].content)
+    assert body["reasoning"] == {"effort": "low"}
+    assert body["tool_choice"]["name"] == "submit_portfolio_observations"
+    content = body["input"][0]["content"]
+    assert content[1]["text"] == "photoId=portfolio-photo"
+    assert content[2]["image_url"].endswith(base64.b64encode(photo["bytes"]).decode())
+
+
+def test_portfolio_analysis_rejects_observations_for_another_photo(monkeypatch, ai_settings):
+    response = {"observations": [{"photoId": "another-photo", "text": "금속 레일"}]}
+    mock_completion(monkeypatch, [tool_call(json.dumps(response), name="submit_portfolio_observations")])
+    photo = {"photoId": "portfolio-photo", "bytes": b"portfolio-image"}
+
+    with pytest.raises(DomainError) as failure:
+        ai_provider.describe_portfolio(ai_settings, [photo], timeout=10)
+    assert failure.value.code == "AI_INVALID_OUTPUT"
 
 
 @pytest.mark.parametrize("arguments", [

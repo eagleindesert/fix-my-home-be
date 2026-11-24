@@ -9,15 +9,18 @@ from pathlib import Path
 import pytest
 from alembic import command
 from PIL import Image
+from pydantic import SecretStr
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
+from app import ai_provider
 from app.config import Settings
 from app.db import Account, Job, ReferenceData, Resource, StoredFile
 from app.main import create_app
 from app.media import FileStore, normalize_image
 from app.schema import alembic_config
-from app.security import verify_password
+from app.security import hash_password, verify_password
+from app.services.accounts import create_account
 from app.services.context import Context
 from app.time_rules import SEOUL, iso
 from app.worker import run_once
@@ -67,8 +70,7 @@ def test_new_user_can_find_seeded_technician_and_confirm_reservation(seed_enviro
     settings, factory = seed_environment
     seeded = seed_initial.seed_initial(settings, factory)
     assert seeded.created
-    assert seeded.generated_password
-    assert seeded.generated_password != settings.seed_password.get_secret_value()
+    assert seeded.generated_password == "432!"
     with factory() as db:
         accounts = list(db.scalars(select(Account)))
         tech_accounts = [row for row in accounts if "TECHNICIAN" in row.roles]
@@ -80,6 +82,7 @@ def test_new_user_can_find_seeded_technician_and_confirm_reservation(seed_enviro
             seed_initial.SCENARIO2_COMPETITOR_USER_LOGIN,
             seed_initial.SCENARIO3_USER_LOGIN,
         }
+        assert all(verify_password("432!", account.password_hash) for account in accounts)
         assert list(db.scalars(select(Job).where(Job.state != "DONE"))) == []
 
     app = create_app(settings, factory)
@@ -130,8 +133,10 @@ def test_new_user_can_find_seeded_technician_and_confirm_reservation(seed_enviro
         assert reservation["status"] == "CONFIRMED"
 
 
-def test_scenario_1_sliding_door_candidates_cases_and_single_photo_consultation(seed_environment):
+def test_scenario_1_sliding_door_candidates_cases_and_single_photo_consultation(seed_environment, monkeypatch):
     settings, factory = seed_environment
+    settings.openai_model = "test-vision-model"
+    settings.openai_api_key = SecretStr("test-vision-key")
     seeded = seed_initial.seed_initial(settings, factory)
     saturday = seeded.scenario_saturday
     assert saturday is not None and saturday.weekday() == seed_initial.SATURDAY
@@ -222,10 +227,11 @@ def test_scenario_1_sliding_door_candidates_cases_and_single_photo_consultation(
         assert portfolio_b["cases"][0]["content"]["confirmedCause"] == "창문 잠금장치 파손"
         assert portfolio_c["cases"][0]["content"]["confirmedCause"] == "하단 레일 변형"
 
-        ai_job = result(minseo.post(
+        matching_input = {"type": "CASE_MATCHING", "workItemId": item["workItemId"], "sourceRevision": item["sourceRevision"]}
+        result(minseo.post(
             f"/v1/requests/{root['requestId']}/ai-jobs",
             headers={"Idempotency-Key": '"s1-case-match"'},
-            json={"type": "CASE_MATCHING", "workItemId": item["workItemId"], "sourceRevision": item["sourceRevision"]},
+            json=matching_input,
         ), "AiJobDTO", 202)
         by_id = {row["technician"]["technicianId"]: row for row in candidates["items"]}
         mock_ai_output = {
@@ -266,16 +272,69 @@ def test_scenario_1_sliding_door_candidates_cases_and_single_photo_consultation(
             },
         }
         captured_prompt = {}
+        descriptions = {
+            photo["mediaId"]: text
+            for portfolio, text in [(portfolio_a, "미닫이문 하부의 금속 레일"), (portfolio_b, "창호 잠금장치")]
+            for photo in portfolio["photos"]
+        }
+        vlm_calls = []
+
+        def describe_portfolio(settings_arg, photos_arg, timeout):
+            media_ids = {photo["photoId"] for photo in photos_arg}
+            vlm_calls.append(media_ids)
+            assert all(photo["bytes"].startswith(b"\xff\xd8") for photo in photos_arg)
+            return {media_id: descriptions[media_id] for media_id in media_ids}
+
+        monkeypatch.setattr(ai_provider, "describe_portfolio", describe_portfolio)
 
         def case_provider(settings_arg, prompt, photos_arg, timeout):
             captured_prompt.update(prompt)
+            assert {photo["photoId"] for photo in photos_arg} == {
+                photo["photoId"] for photo in root["photos"]["unknownDatePhotos"]
+            }
             return mock_ai_output
 
         assert run_once(factory, settings, provider=case_provider)
         assert {c["technician"]["technicianId"] for c in captured_prompt["candidates"]} == {ids["A"], ids["B"], ids["C"]}
         assert {c["technicianId"] for c in captured_prompt["cases"]} == {ids["A"], ids["B"], ids["C"]}
+        assert vlm_calls == [set(descriptions)]
+        observations = captured_prompt["portfolioObservations"]
+        assert set(observations) == {ids["A"], ids["B"]}
+        for portfolio in (portfolio_a, portfolio_b):
+            assert {entry["mediaId"]: entry["text"] for entry in observations[portfolio["technicianId"]]} == {
+                photo["mediaId"]: descriptions[photo["mediaId"]] for photo in portfolio["photos"]
+            }
         recs = result(minseo.get(f"/v1/work-items/{item['workItemId']}/case-recommendations"), "CaseRecommendationsDTO")
         assert [r["candidate"]["technician"]["technicianId"] for r in recs["recommendations"]] == [ids["A"]]
+
+        result(minseo.post(
+            f"/v1/requests/{root['requestId']}/ai-jobs",
+            headers={"Idempotency-Key": '"s1-case-match-again"'},
+            json=matching_input,
+        ), "AiJobDTO", 202)
+        assert run_once(factory, settings, provider=case_provider)
+        assert vlm_calls == [set(descriptions)]
+        assert captured_prompt["portfolioObservations"] == observations
+
+        # 사례에 연결하지 않은 새 사진도 기사 포트폴리오 관찰에 반영된다.
+        source = portfolio_a["cases"][0]["content"]["source"].copy()
+        source.pop("verified")
+        additional_media, = result(tech_a.post(
+            "/v1/technicians/me/portfolio-photos",
+            headers={"Idempotency-Key": '"s1-new-portfolio-photo"'},
+            data={"source": json.dumps(source)},
+            files=[("files", ("rail.jpg", seed_initial.seed_image("sliding-door-roller-before"), "image/jpeg"))],
+        ), "MediaDTO[]", 201)
+        additional_id = additional_media["mediaId"]
+        descriptions[additional_id] = "문짝 아래의 긴 금속 홈"
+        result(minseo.post(
+            f"/v1/requests/{root['requestId']}/ai-jobs",
+            headers={"Idempotency-Key": '"s1-case-match-after-upload"'},
+            json=matching_input,
+        ), "AiJobDTO", 202)
+        assert run_once(factory, settings, provider=case_provider)
+        assert vlm_calls == [set(descriptions) - {additional_id}, {additional_id}]
+        assert {"mediaId": additional_id, "text": descriptions[additional_id]} in captured_prompt["portfolioObservations"][ids["A"]]
 
         # 민서는 레일 사진 1장만 담은 상담 전달본을 준비·확인해 A에게 상담을 요청한다.
         delivery = result(minseo.post(
@@ -752,7 +811,7 @@ def test_scenario_3_wallpaper_progress_pdf_handover_and_preparation_notes(seed_e
         assert "창틀 주변과 벽지 물자국 경계를 함께 점검" in prep["inspectionItems"]
 
 
-def test_rerun_rotates_demo_password_and_extends_unedited_schedules(seed_environment):
+def test_rerun_updates_legacy_demo_passwords_and_extends_unedited_schedules(seed_environment):
     settings, factory = seed_environment
     today = date(2030, 1, 1)
     with factory.begin() as db:
@@ -761,42 +820,40 @@ def test_rerun_rotates_demo_password_and_extends_unedited_schedules(seed_environ
             data={"city": "서울특별시", "district": "마포구", "neighborhood": "연남동",
                   "representativeLocationId": "existing-location"},
         ))
+        other_account = create_account(db, settings, "demo-tech-custom", "other-password-123", ["USER"])
+        other_id, other_hash = other_account.id, other_account.password_hash
     seeded = seed_initial.seed_initial(settings, factory, today)
-    with factory() as db:
-        other_hashes = dict(db.execute(
-            select(Account.login_id, Account.password_hash)
-            .where(Account.login_id.not_in(seed_initial.DEMO_PASSWORD_LOGINS))
-        ).all())
+    legacy_logins = ("demo-tech-30", seed_initial.DEMO_LOGIN, seed_initial.SCENARIO1_USER_LOGIN)
+    legacy_hash = hash_password("legacy-demo-password")
+    with factory.begin() as db:
+        for account in db.scalars(select(Account).where(Account.login_id.in_(legacy_logins))):
+            account.password_hash = legacy_hash
     same_day = seed_initial.seed_initial(settings, factory, today)
     assert not same_day.created and same_day.schedules_extended == 0
-    assert same_day.generated_password
-    assert same_day.generated_password != seeded.generated_password
+    assert same_day.generated_password == seeded.generated_password == "432!"
 
     with factory.begin() as db:
-        for account in db.scalars(select(Account)):
-            if account.login_id in seed_initial.DEMO_PASSWORD_LOGINS:
-                assert verify_password(same_day.generated_password, account.password_hash)
-                assert not verify_password(seeded.generated_password, account.password_hash)
-            else:
-                assert account.password_hash == other_hashes[account.login_id]
+        assert db.get(Account, other_id).password_hash == other_hash
+        for account in db.scalars(select(Account).where(Account.id != other_id)):
+            assert verify_password("432!", account.password_hash)
         manifest = db.get(ReferenceData, seed_initial.SEED_VERSION)
         edited_id, untouched_id = [row["id"] for row in manifest.data["schedules"][:2]]
         edited = db.get(Resource, edited_id)
         assert edited.data["departureLocationId"] == "existing-location"
         assert db.get(ReferenceData, f"{seed_initial.SEED_VERSION}-region-yeonnam") is None
         Context(db, None, settings).save(edited, availability=[])
-        account_ids = set(db.scalars(select(Account.id)))
+        account_hashes = dict(db.execute(select(Account.id, Account.password_hash)).all())
         photo_ids = set(db.scalars(select(StoredFile.id)))
 
     refresh = seed_initial.seed_initial(settings, factory, today + timedelta(days=2))
     assert not refresh.created
-    assert refresh.generated_password not in (None, seeded.generated_password, same_day.generated_password)
+    assert refresh.generated_password == "432!"
     assert (refresh.schedules_extended, refresh.schedules_skipped) == (31, 1)
     assert refresh.available_through == today + timedelta(days=15)
     with factory() as db:
         assert db.get(Resource, edited_id).data["availability"] == []
         assert len(db.get(Resource, untouched_id).data["availability"]) == 16
-        assert set(db.scalars(select(Account.id))) == account_ids
+        assert dict(db.execute(select(Account.id, Account.password_hash)).all()) == account_hashes
         assert set(db.scalars(select(StoredFile.id))) == photo_ids
 
 
@@ -896,7 +953,7 @@ def test_upgrade_from_legacy_seed_adds_scenario_data(seed_environment):
     assert upgraded.upgraded and not upgraded.created
     with factory() as db:
         logins = set(db.scalars(select(Account.login_id)))
-        assert seed_initial.DEMO_PASSWORD_LOGINS <= logins
+        assert set(seed_initial.DEMO_ACCOUNT_LOGINS) == logins
         manifest = db.get(ReferenceData, seed_initial.SEED_VERSION)
         assert manifest.data["scenariosSeeded"] is True
         assert manifest.data["scenarioSeedVersion"] == seed_initial.SCENARIO_SEED_VERSION

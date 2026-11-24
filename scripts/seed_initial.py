@@ -6,7 +6,6 @@ import argparse
 import hashlib
 import json
 import os
-import secrets
 import sys
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta
@@ -28,7 +27,7 @@ from app.db import Account, Job, ReferenceData, Resource, StoredFile, lock, now,
 from app.errors import DomainError
 from app.media import FileStore, mask_image, normalize_image
 from app.schema import validate_schema
-from app.security import Actor, hash_password
+from app.security import Actor, hash_password, verify_password
 from app.services import consultations, handover, requests, reservations, technicians, views
 from app.services.accounts import create_account
 from app.services.context import Context
@@ -44,6 +43,7 @@ SEED_IMAGE_DIR = Path(__file__).resolve().parent / "seed_images"
 if __file__ == "<stdin>":
     SEED_IMAGE_DIR = Path.cwd() / "scripts" / "seed_images"
 
+DEMO_PASSWORD = "432!"
 DEMO_LOGIN = "demo-tech-01"
 SCENARIO1_USER_LOGIN = "demo-user-minseo"
 SCENARIO1_TECH_A_LOGIN = "demo-tech-door-a"
@@ -54,17 +54,12 @@ SCENARIO2_COMPETITOR_USER_LOGIN = "demo-user-hapjeong"
 SCENARIO3_USER_LOGIN = "demo-user-seoyeon"
 SCENARIO3_TECH_LOGIN = "demo-tech-03"
 SCENARIO3_QUOTE_SCOPE = "거실 창문 왼쪽 아래 벽지 물자국 및 창틀 경계 현장 점검"
-DEMO_PASSWORD_LOGINS = frozenset({
-    DEMO_LOGIN,
+SCENARIO_USER_LOGINS = (
     SCENARIO1_USER_LOGIN,
-    SCENARIO1_TECH_A_LOGIN,
-    SCENARIO1_TECH_B_LOGIN,
-    SCENARIO1_TECH_C_LOGIN,
     SCENARIO2_USER_LOGIN,
     SCENARIO2_COMPETITOR_USER_LOGIN,
     SCENARIO3_USER_LOGIN,
-    SCENARIO3_TECH_LOGIN,
-})
+)
 
 AVAILABILITY_DAYS = 14
 THURSDAY = 3
@@ -191,6 +186,12 @@ SCENARIO1_DOOR_TECHS = (
         visit_kind="door_c_saturday",
     ),
 )
+
+BASE_TECH_LOGINS = tuple(
+    f"demo-tech-{index:02}" for index in range(1, len(REGIONS) * len(WORKS) + 1)
+)
+DEMO_TECH_LOGINS = (*BASE_TECH_LOGINS, *(tech.login for tech in SCENARIO1_DOOR_TECHS))
+DEMO_ACCOUNT_LOGINS = (*DEMO_TECH_LOGINS, *SCENARIO_USER_LOGINS)
 
 
 @dataclass(frozen=True)
@@ -767,7 +768,11 @@ def add_portfolio(ctx, tech, work, today):
     )
 
 
-def create_scenario_door_technicians(ctx, yeonnam, today, through, demo_password):
+def create_demo_account(ctx, login_id, roles):
+    return create_account(ctx.db, ctx.settings, login_id, DEMO_PASSWORD, roles, min_password_length=1)
+
+
+def create_scenario_door_technicians(ctx, yeonnam, today, through):
     schedules, tech_by_login = [], {}
     for item in SCENARIO1_DOOR_TECHS:
         existing_account = ctx.db.scalar(select(Account).where(Account.login_id == item.login))
@@ -777,7 +782,7 @@ def create_scenario_door_technicians(ctx, yeonnam, today, through, demo_password
             ))
             tech_by_login[item.login] = (existing_account, tech)
             continue
-        account = create_account(ctx.db, ctx.settings, item.login, demo_password, ["USER", "TECHNICIAN"])
+        account = create_demo_account(ctx, item.login, ["USER", "TECHNICIAN"])
         tech = ctx.db.scalar(select(Resource).where(
             Resource.kind == "TECHNICIAN", Resource.owner_id == account.id,
         ))
@@ -830,21 +835,19 @@ def create_scenario_door_technicians(ctx, yeonnam, today, through, demo_password
     return schedules, tech_by_login
 
 
-def create_technicians(ctx, regions, today, through, demo_password):
+def create_technicians(ctx, regions, today, through):
     by_key = {region.key: region for region in regions}
-    base_logins = [f"demo-tech-{index:02}" for index in range(1, len(regions) * len(WORKS) + 1)]
-    scenario_logins = [item.login for item in SCENARIO1_DOOR_TECHS]
-    all_logins = base_logins + scenario_logins
-    collision = ctx.db.scalar(select(Account.login_id).where(Account.login_id.in_(all_logins)).limit(1))
+    collision = ctx.db.scalar(
+        select(Account.login_id).where(Account.login_id.in_(DEMO_TECH_LOGINS)).limit(1)
+    )
     if collision:
         raise SeedError(f"기사 로그인 ID {collision}이(가) 이미 사용 중입니다.")
 
     schedules, tech_by_login = [], {}
-    for index, login in enumerate(base_logins):
+    for index, login in enumerate(BASE_TECH_LOGINS):
         region_index, work_index = divmod(index, len(WORKS))
         region, work = regions[region_index], WORKS[work_index]
-        password = demo_password if login in DEMO_PASSWORD_LOGINS else secrets.token_urlsafe(24)
-        account = create_account(ctx.db, ctx.settings, login, password, ["USER", "TECHNICIAN"])
+        account = create_demo_account(ctx, login, ["USER", "TECHNICIAN"])
         tech = ctx.db.scalar(select(Resource).where(
             Resource.kind == "TECHNICIAN", Resource.owner_id == account.id,
         ))
@@ -893,38 +896,30 @@ def create_technicians(ctx, regions, today, through, demo_password):
         })
         tech_by_login[login] = (account, tech)
 
-    door_schedules, door_techs = create_scenario_door_technicians(
-        ctx, by_key["yeonnam"], today, through, demo_password,
-    )
+    door_schedules, door_techs = create_scenario_door_technicians(ctx, by_key["yeonnam"], today, through)
     schedules.extend(door_schedules)
     tech_by_login.update(door_techs)
     return schedules, tech_by_login
 
 
-def ensure_scenario_starter_users(ctx, demo_password):
+def ensure_scenario_starter_users(ctx):
     for login in (SCENARIO1_USER_LOGIN, SCENARIO2_USER_LOGIN):
         if not ctx.db.scalar(select(Account).where(Account.login_id == login)):
-            create_account(ctx.db, ctx.settings, login, demo_password, ["USER"])
+            create_demo_account(ctx, login, ["USER"])
 
 
-def seed_scenario_requests(ctx, regions, today, through, demo_password, tech_by_login):
-    scenario_users = [
-        SCENARIO1_USER_LOGIN,
-        SCENARIO2_USER_LOGIN,
-        SCENARIO2_COMPETITOR_USER_LOGIN,
-        SCENARIO3_USER_LOGIN,
-    ]
-    collision = ctx.db.scalar(select(Account.login_id).where(Account.login_id.in_(scenario_users)).limit(1))
+def seed_scenario_requests(ctx, regions, today, through, tech_by_login):
+    collision = ctx.db.scalar(
+        select(Account.login_id).where(Account.login_id.in_(SCENARIO_USER_LOGINS)).limit(1)
+    )
     if collision:
         raise SeedError(f"시연 사용자 로그인 ID {collision}이(가) 이미 사용 중입니다.")
 
-    ensure_scenario_starter_users(ctx, demo_password)
+    ensure_scenario_starter_users(ctx)
     by_key = {region.key: region for region in regions}
 
     # 시나리오 2 비교용: 합정동 수전 교체 요청 (목요일 14:00~17:00, 동선 제안 탐색 활성)
-    hapjeong_account = create_account(
-        ctx.db, ctx.settings, SCENARIO2_COMPETITOR_USER_LOGIN, demo_password, ["USER"],
-    )
+    hapjeong_account = create_demo_account(ctx, SCENARIO2_COMPETITOR_USER_LOGIN, ["USER"])
     hapjeong_ctx = Context(
         ctx.db, Actor(hapjeong_account.id, "USER", None, None), ctx.settings,
         new_files=ctx.new_files,
@@ -988,9 +983,7 @@ def seed_scenario_requests(ctx, regions, today, through, demo_password, tech_by_
     hapjeong_ctx.save(hapjeong_item, routeExplorationEnabled=True)
 
     # 시나리오 3: 서연의 벽지 물자국 경과 기록 + 확정 예약 (벽면·도배 기사 demo-tech-03)
-    seoyeon_account = create_account(
-        ctx.db, ctx.settings, SCENARIO3_USER_LOGIN, demo_password, ["USER"],
-    )
+    seoyeon_account = create_demo_account(ctx, SCENARIO3_USER_LOGIN, ["USER"])
     seoyeon_ctx = Context(
         ctx.db, Actor(seoyeon_account.id, "USER", None, None), ctx.settings,
         new_files=ctx.new_files,
@@ -1220,7 +1213,7 @@ def seed_scenario_requests(ctx, regions, today, through, demo_password, tech_by_
     })
 
 
-def upgrade_existing_seed(ctx, manifest, today, through, demo_password):
+def upgrade_existing_seed(ctx, manifest, today, through):
     regions = prepare_references(ctx, today)
     by_key = {region.key: region for region in regions}
     last_day = date.fromisoformat(manifest.data["availableThrough"])
@@ -1274,7 +1267,7 @@ def upgrade_existing_seed(ctx, manifest, today, through, demo_password):
                         break
 
     door_schedules, _ = create_scenario_door_technicians(
-        ctx, by_key["yeonnam"], today, effective_through, demo_password,
+        ctx, by_key["yeonnam"], today, effective_through,
     )
     schedules.extend(door_schedules)
 
@@ -1286,11 +1279,11 @@ def upgrade_existing_seed(ctx, manifest, today, through, demo_password):
         select(Account).where(Account.login_id.in_([SCENARIO2_COMPETITOR_USER_LOGIN, SCENARIO3_USER_LOGIN])).limit(1)
     ):
         seed_scenario_requests(
-            ctx, regions, today, effective_through, demo_password,
+            ctx, regions, today, effective_through,
             {SCENARIO3_TECH_LOGIN: (wall_account, wall_tech)},
         )
     else:
-        ensure_scenario_starter_users(ctx, demo_password)
+        ensure_scenario_starter_users(ctx)
         seoyeon_account = ctx.db.scalar(select(Account).where(Account.login_id == SCENARIO3_USER_LOGIN))
         if seoyeon_account:
             seoyeon_item = ctx.db.scalar(select(Resource).where(
@@ -1381,21 +1374,22 @@ def seed_initial(settings, factory, today=None):
             lock(db, "admin")
             validate_schema(db.connection())
             ctx = Context(db, None, settings, new_files=created_files)
-            demo_password = secrets.token_urlsafe(24)
             manifest = db.get(ReferenceData, SEED_VERSION)
             if manifest:
                 if manifest.data.get("scenarioSeedVersion", 0) < SCENARIO_SEED_VERSION:
-                    result = upgrade_existing_seed(ctx, manifest, today, through, demo_password)
+                    result = upgrade_existing_seed(ctx, manifest, today, through)
                 else:
                     result = extend_schedules(ctx, manifest, today, through)
                 photos_updated = refresh_legacy_seed_photos(ctx, manifest)
-                for account in db.scalars(select(Account).where(Account.login_id.in_(DEMO_PASSWORD_LOGINS))):
-                    account.password_hash = hash_password(demo_password)
-                return replace(result, photos_updated=photos_updated, generated_password=demo_password)
+                accounts = db.scalars(select(Account).where(Account.login_id.in_(DEMO_ACCOUNT_LOGINS)))
+                for account in accounts:
+                    if not verify_password(DEMO_PASSWORD, account.password_hash):
+                        account.password_hash = hash_password(DEMO_PASSWORD)
+                return replace(result, photos_updated=photos_updated, generated_password=DEMO_PASSWORD)
 
             regions = prepare_references(ctx, today)
-            schedules, tech_by_login = create_technicians(ctx, regions, today, through, demo_password)
-            seed_scenario_requests(ctx, regions, today, through, demo_password, tech_by_login)
+            schedules, tech_by_login = create_technicians(ctx, regions, today, through)
+            seed_scenario_requests(ctx, regions, today, through, tech_by_login)
             db.add(ReferenceData(
                 id=SEED_VERSION,
                 kind=SEED_KIND,
@@ -1414,7 +1408,7 @@ def seed_initial(settings, factory, today=None):
                 created=True,
                 scenario_thursday=next_weekday(today, THURSDAY),
                 scenario_saturday=next_weekday(today, SATURDAY),
-                generated_password=demo_password,
+                generated_password=DEMO_PASSWORD,
             )
     except (Exception, KeyboardInterrupt):
         store = FileStore(settings.storage_dir)
@@ -1466,7 +1460,7 @@ def main(argv=None):
             f"(사용자 지훈 {SCENARIO2_USER_LOGIN}, 기사-2 {DEMO_LOGIN}, 비교 요청 {SCENARIO2_COMPETITOR_USER_LOGIN})"
         )
     print(f"시나리오 3 계정: 임차인 서연 {SCENARIO3_USER_LOGIN}, 기사-3 {SCENARIO3_TECH_LOGIN}")
-    print(f"이번에 발급한 공용 시연 비밀번호 {result.generated_password}")
+    print(f"공용 시연 비밀번호 {result.generated_password}")
 
 
 if __name__ == "__main__":
