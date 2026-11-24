@@ -132,6 +132,10 @@ def test_new_user_can_find_seeded_technician_and_confirm_reservation(seed_enviro
         ), "ReservationDTO", 201)
         assert reservation["status"] == "CONFIRMED"
 
+        with pytest.raises(seed_initial.SeedError, match="시연 계정 외의 연결된 자료"):
+            seed_initial.seed_initial(settings, factory, reset_existing=True)
+        assert result(user.get(f"/v1/reservations/{reservation['reservationId']}"))["status"] == "CONFIRMED"
+
 
 def test_scenario_1_sliding_door_candidates_cases_and_single_photo_consultation(seed_environment, monkeypatch):
     settings, factory = seed_environment
@@ -372,7 +376,7 @@ def test_scenario_1_sliding_door_candidates_cases_and_single_photo_consultation(
         assert [p["photoId"] for p in delivered_for_a["content"]["photos"]] == [rail_photo["photoId"]]
 
 
-def test_scenario_2_route_discount_ranking_and_schedule_conflict(seed_environment):
+def test_scenario_2_route_discount_ranking_and_schedule_conflict(seed_environment, monkeypatch):
     settings, factory = seed_environment
     seeded = seed_initial.seed_initial(settings, factory)
     thursday = seeded.scenario_thursday
@@ -380,10 +384,7 @@ def test_scenario_2_route_discount_ranking_and_schedule_conflict(seed_environmen
 
     app = create_app(settings, factory)
     with APIClient(app) as jihoon, APIClient(app) as technician:
-        result(jihoon.post("/v1/auth/signup", json={
-            "loginId": "jihoon", "password": "testing-password-123",
-        }), status=201)
-        login(jihoon, "jihoon")
+        login(jihoon, seed_initial.SCENARIO2_USER_LOGIN, password=seeded.generated_password)
         login(technician, seed_initial.DEMO_LOGIN, "TECHNICIAN", password=seeded.generated_password)
         tech = result(technician.get("/v1/technicians/me"), "TechnicianDTO")
 
@@ -575,6 +576,50 @@ def test_scenario_2_route_discount_ranking_and_schedule_conflict(seed_environmen
             },
         ), "ReservationDTO", 201)
         assert reservation["status"] == "CONFIRMED"
+
+        with factory.begin() as db:
+            ctx = Context(db, None, settings)
+            old_schedule = db.scalar(select(Resource).where(
+                Resource.kind == "SCHEDULE", Resource.technician_id == tech["technicianId"],
+            ))
+            ctx.save(old_schedule, availability=[], externalVisits=[])
+            other = create_account(db, settings, "other-user", "testing-password-123", ["USER"])
+            other_request = ctx.create("REQUEST", {"symptom": "별도 사용자 요청"}, owner_id=other.id)
+            other_photo = ctx.create("PHOTO", request_id=other_request.id, owner_id=other.id)
+            other_file = ctx.store_file(other_photo, picture(), "image/png")
+
+        with factory.kw["bind"].connect() as connection:
+            connection.exec_driver_sql("PRAGMA foreign_keys = ON")
+        monkeypatch.setattr(seed_initial, "get_settings", lambda: settings)
+        monkeypatch.setattr(seed_initial, "session_factory", lambda: factory)
+        seed_initial.main([])
+
+        assert jihoon.get("/v1/auth/me").status_code == 401
+        assert technician.get("/v1/auth/me").status_code == 401
+        login(jihoon, seed_initial.SCENARIO2_USER_LOGIN, password=seeded.generated_password)
+        login(technician, seed_initial.DEMO_LOGIN, "TECHNICIAN", password=seeded.generated_password)
+        assert result(jihoon.get("/v1/requests"))["items"] == []
+        assert result(technician.get("/v1/consultations"))["items"] == []
+        assert result(technician.get("/v1/reservations"))["items"] == []
+
+        new_tech = result(technician.get("/v1/technicians/me"), "TechnicianDTO")
+        assert run_once(factory, settings)
+        with factory() as db:
+            for old_id in (root["requestId"], relation["consultationId"], quote["quoteId"],
+                           reservation["reservationId"], old_schedule.id):
+                assert db.get(Resource, old_id) is None
+            schedule = db.scalar(select(Resource).where(
+                Resource.kind == "SCHEDULE", Resource.technician_id == new_tech["technicianId"],
+            ))
+            assert len(schedule.data["availability"]) == seed_initial.AVAILABILITY_DAYS
+            assert schedule.data["externalVisits"]
+            seeded_reservation, = db.scalars(select(Resource).where(Resource.kind == "RESERVATION"))
+            assert seeded_reservation.status == "CONFIRMED"
+            assert db.get(Account, other.id).login_id == "other-user"
+            assert db.get(Resource, other_request.id).data["symptom"] == "별도 사용자 요청"
+            assert db.get(StoredFile, other_file.id).key == other_file.key
+            assert {path.name for path in settings.storage_dir.iterdir()} == set(db.scalars(select(StoredFile.key)))
+            assert db.connection().exec_driver_sql("PRAGMA foreign_key_check").all() == []
 
 
 def test_scenario_3_wallpaper_progress_pdf_handover_and_preparation_notes(seed_environment):
@@ -991,17 +1036,23 @@ def test_upgrade_from_legacy_seed_adds_scenario_data(seed_environment):
         assert any(r["productSpecific"] for r in solutions["officialService"]["routes"])
 
 
-def test_seed_failure_rolls_back_database_and_images(seed_environment, monkeypatch):
+@pytest.mark.parametrize("reset_existing", [False, True])
+def test_seed_failure_rolls_back_database_and_images(seed_environment, monkeypatch, reset_existing):
     settings, factory = seed_environment
+    if reset_existing:
+        seed_initial.seed_initial(settings, factory)
+    models = (Account, Job, ReferenceData, Resource, StoredFile)
+    with factory() as db:
+        before = {model: set(db.scalars(select(model.id))) for model in models}
+    original_files = set(settings.storage_dir.glob("*"))
 
     def fail_case(*args, **kwargs):
         raise RuntimeError("모의 사례 등록 오류")
 
     monkeypatch.setattr(seed_initial.technicians, "case", fail_case)
     with pytest.raises(RuntimeError, match="모의 사례 등록 오류"):
-        seed_initial.seed_initial(settings, factory)
+        seed_initial.seed_initial(settings, factory, reset_existing=reset_existing)
 
     with factory() as db:
-        for model in (Account, Job, ReferenceData, Resource, StoredFile):
-            assert db.scalar(select(model)) is None
-    assert list(settings.storage_dir.iterdir()) == []
+        assert {model: set(db.scalars(select(model.id))) for model in models} == before
+    assert set(settings.storage_dir.glob("*")) == original_files
