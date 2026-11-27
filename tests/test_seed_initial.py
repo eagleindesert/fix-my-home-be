@@ -15,7 +15,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app import ai_provider
 from app.config import Settings
-from app.db import Account, Job, ReferenceData, Resource, StoredFile
+from app.db import Account, Job, ReferenceData, Resource, StoredFile, now
 from app.main import create_app
 from app.media import FileStore, normalize_image
 from app.schema import alembic_config
@@ -27,6 +27,7 @@ from app.worker import run_once
 from conftest import APIClient, login, picture, result, setup_item
 from scripts import seed_initial
 from test_api import consultation_and_quote
+from test_jobs import empty_result
 
 
 def test_seed_script_path_runs_from_parent_directory():
@@ -137,6 +138,156 @@ def test_new_user_can_find_seeded_technician_and_confirm_reservation(seed_enviro
         assert result(user.get(f"/v1/reservations/{reservation['reservationId']}"))["status"] == "CONFIRMED"
 
 
+def test_seeded_cases_remain_visible_when_matching_has_no_result(seed_environment):
+    settings, factory = seed_environment
+    settings.openai_api_key, settings.openai_model = SecretStr(""), ""
+    seeded = seed_initial.seed_initial(settings, factory)
+
+    with APIClient(create_app(settings, factory)) as user:
+        login(user, seed_initial.SCENARIO1_USER_LOGIN, password=seeded.generated_password)
+        regions = result(user.get("/v1/public/service-info"))["regions"]
+        region = next(row for row in regions if row["neighborhood"] == "효창동")
+        symptom = "천장 조명이 간헐적으로 깜박입니다."
+        root = result(user.post(
+            "/v1/requests",
+            headers={"Idempotency-Key": '"lighting-fallback"'},
+            data={"metadata": json.dumps({
+                "symptom": "확인이 필요한 문제가 생겼습니다.",
+                "region": {key: region[key] for key in ("city", "district", "neighborhood", "regionId")},
+                "photos": [{"capturedOn": None, "dateConfirmed": False}],
+            })},
+            files=[("files", ("light.png", picture(), "image/png"))],
+        ), "RequestDTO", 201)
+        item = root["workItems"][0]
+        path = f"/v1/work-items/{item['workItemId']}"
+
+        def get_recommendations():
+            return result(user.get(f"{path}/case-recommendations"), "CaseRecommendationsDTO")
+
+        def fallback_case(response):
+            recommendation, = response["recommendations"]
+            scored, = recommendation["cases"]
+            assert 1 <= scored["score"] <= 5
+            assert recommendation["rank"] == 1
+            assert recommendation["averageScore"] == scored["score"]
+            assert scored["evidence"][0].startswith("등록 사례 참고 점수")
+            return scored["case"]
+
+        unfiltered = get_recommendations()
+        assert set(unfiltered) == {"evaluationStatus", "sourceRevision", "stale", "recommendations", "reason"}
+        assert unfiltered["evaluationStatus"] == "NOT_REQUESTED"
+        assert 0 < len(unfiltered["recommendations"]) <= 5
+        path_to_request = f"/v1/requests/{root['requestId']}"
+        revised = result(user.patch(path_to_request, json={
+            "expectedRevision": root["revision"], "symptom": symptom,
+        }), "RequestDTO")
+        item = revised["workItems"][0]
+        initial = get_recommendations()
+        reference_case = fallback_case(initial)
+        assert reference_case["content"]["fields"] == ["ELECTRICAL"]
+        assert reference_case["content"]["dataType"] == "MOCK"
+        assert reference_case["beforePhotos"] and reference_case["afterPhotos"]
+        reference_candidate = initial["recommendations"][0]["candidate"]
+        assert reference_candidate["timeFit"] == "UNKNOWN"
+        assert reference_candidate["checks"][0]["reason"] == "요청 지역이 이 기사의 서비스 지역에 포함되지 않아요."
+
+        def confirm(current_item, key):
+            return result(user.put(
+                f"{path}/confirmation",
+                headers={"Idempotency-Key": f'"{key}"'},
+                json={
+                    "expectedRevision": current_item["revision"],
+                    "sourceRevision": current_item["sourceRevision"],
+                    "fields": ["ELECTRICAL"],
+                    "confirmed": True,
+                    "summary": {"text": symptom, "facts": [], "unknowns": []},
+                },
+            ), "WorkItemDTO")
+
+        def enqueue(key):
+            return result(user.post(
+                f"/v1/requests/{root['requestId']}/ai-jobs",
+                headers={"Idempotency-Key": f'"{key}"'},
+                json={"type": "CASE_MATCHING", "workItemId": item["workItemId"],
+                      "sourceRevision": item["sourceRevision"]},
+            ), "AiJobDTO", 202)
+
+        item = confirm(item, "confirm-lighting")
+        job = enqueue("missing-ai")
+        queued = get_recommendations()
+        assert queued["evaluationStatus"] == "RUNNING"
+        assert fallback_case(queued) == reference_case
+        assert run_once(factory, settings)
+        failed = result(user.get(f"/v1/ai-jobs/{job['jobId']}"), "AiJobDTO")
+        assert failed["status"] == "FAILED" and failed["error"]["code"] == "AI_NOT_CONFIGURED"
+        failed_recommendations = get_recommendations()
+        assert failed_recommendations["evaluationStatus"] == "INCOMPLETE"
+        assert fallback_case(failed_recommendations) == reference_case
+
+        enqueue("empty-ai")
+        empty = {"evaluationStatus": "COMPLETED", "sourceRevision": item["sourceRevision"],
+                 "stale": False, "recommendations": [], "reason": None}
+        assert run_once(factory, settings, provider=lambda *_: empty_result(caseRecommendations=empty))
+        completed = get_recommendations()
+        assert completed["evaluationStatus"] == "COMPLETED"
+        assert fallback_case(completed) == reference_case
+
+        job = enqueue("expired-ai")
+        with factory() as db, db.begin():
+            deadline = now() - timedelta(seconds=1)
+            row = db.get(Resource, job["jobId"])
+            row.data = {**row.data, "deadlineAt": iso(deadline)}
+            db.get(Job, row.id).deadline_at = deadline
+        timed_out = get_recommendations()
+        assert timed_out["evaluationStatus"] == "INCOMPLETE"
+        assert fallback_case(timed_out) == reference_case
+        assert not run_once(factory, settings)
+
+        fresh_root = result(user.get(path_to_request), "RequestDTO")
+        yeonnam = next(row for row in regions if row["neighborhood"] == "연남동")
+        revised = result(user.patch(path_to_request, json={
+            "expectedRevision": fresh_root["revision"],
+            "region": {key: yeonnam[key] for key in ("city", "district", "neighborhood", "regionId")},
+        }), "RequestDTO")
+        stale = get_recommendations()
+        assert stale["stale"] is True
+        assert fallback_case(stale) == reference_case
+        item = confirm(revised["workItems"][0], "confirm-lighting-yeonnam")
+
+        def score_case(_settings, prompt, _photos, _timeout):
+            candidate, = prompt["candidates"]
+            assert candidate["timeFit"] == "UNKNOWN"
+            case, = prompt["cases"]
+            return empty_result(caseRecommendations={
+                **empty, "sourceRevision": item["sourceRevision"],
+                "recommendations": [{"candidate": candidate, "rank": 1, "averageScore": 1.0,
+                                     "cases": [{"case": case, "score": 1, "evidence": ["전기·조명 분야가 일치해요."]}]}],
+            })
+
+        enqueue("low-score-ai")
+        assert run_once(factory, settings, provider=score_case)
+        recommendations = get_recommendations()
+        match, = recommendations["recommendations"]
+        assert match["candidate"]["timeFit"] == "UNKNOWN"
+        assert match["cases"][0]["score"] == 1
+        assert match["cases"][0]["evidence"] == ["전기·조명 분야가 일치해요."]
+
+        fresh_root = result(user.get(path_to_request), "RequestDTO")
+        after_seed = datetime.combine(seeded.available_through + timedelta(days=1), time(14), SEOUL)
+        revised_item = result(user.patch(path, json={
+            "expectedRevision": fresh_root["workItems"][0]["revision"],
+            "facts": {
+                "workType": "조명 교체",
+                "quantity": 1,
+                "visitPreference": {"mode": "FIXED", "fixedStartAt": iso(after_seed), "ranges": []},
+            },
+        }), "WorkItemDTO")
+        confirm(revised_item, "confirm-lighting-after-seed")
+        conflict = get_recommendations()
+        assert fallback_case(conflict) == reference_case
+        assert conflict["recommendations"][0]["candidate"]["timeFit"] == "NOT_MATCHED"
+
+
 def test_scenario_1_sliding_door_candidates_cases_and_single_photo_consultation(seed_environment, monkeypatch):
     settings, factory = seed_environment
     settings.openai_model = "test-vision-model"
@@ -223,13 +374,17 @@ def test_scenario_1_sliding_door_candidates_cases_and_single_photo_consultation(
         fits = {row["technician"]["technicianId"]: row["timeFit"] for row in candidates["items"]}
         assert fits == {ids["A"]: "MATCHED", ids["B"]: "MATCHED", ids["C"]: "NOT_MATCHED"}
 
-        # 사례 매칭 실행 시 A만 3점 이상 + MATCHED로 추천되고, B(2점)와 C(NOT_MATCHED)는 제외된다.
+        # A와 낮은 점수의 B도 추천된다. 일정이 충돌한 C는 일반 후보에서 확인할 수 있다.
         portfolio_a = result(minseo.get(f"/v1/technicians/{ids['A']}/portfolio"), "PortfolioDTO")
         portfolio_b = result(minseo.get(f"/v1/technicians/{ids['B']}/portfolio"), "PortfolioDTO")
         portfolio_c = result(minseo.get(f"/v1/technicians/{ids['C']}/portfolio"), "PortfolioDTO")
         assert portfolio_a["cases"][0]["content"]["confirmedCause"] == "하부 롤러 마모"
         assert portfolio_b["cases"][0]["content"]["confirmedCause"] == "창문 잠금장치 파손"
         assert portfolio_c["cases"][0]["content"]["confirmedCause"] == "하단 레일 변형"
+
+        recommendation_path = f"/v1/work-items/{item['workItemId']}/case-recommendations"
+        fallback = result(minseo.get(recommendation_path), "CaseRecommendationsDTO")["recommendations"]
+        assert {entry["candidate"]["technician"]["technicianId"] for entry in fallback} == {ids["A"], ids["B"]}
 
         matching_input = {"type": "CASE_MATCHING", "workItemId": item["workItemId"], "sourceRevision": item["sourceRevision"]}
         result(minseo.post(
@@ -308,8 +463,9 @@ def test_scenario_1_sliding_door_candidates_cases_and_single_photo_consultation(
             assert {entry["mediaId"]: entry["text"] for entry in observations[portfolio["technicianId"]]} == {
                 photo["mediaId"]: descriptions[photo["mediaId"]] for photo in portfolio["photos"]
             }
-        recs = result(minseo.get(f"/v1/work-items/{item['workItemId']}/case-recommendations"), "CaseRecommendationsDTO")
-        assert [r["candidate"]["technician"]["technicianId"] for r in recs["recommendations"]] == [ids["A"]]
+        recs = result(minseo.get(recommendation_path), "CaseRecommendationsDTO")
+        assert [r["candidate"]["technician"]["technicianId"] for r in recs["recommendations"]] == [ids["A"], ids["B"]]
+        assert [r["cases"][0]["score"] for r in recs["recommendations"]] == [5, 2]
 
         result(minseo.post(
             f"/v1/requests/{root['requestId']}/ai-jobs",

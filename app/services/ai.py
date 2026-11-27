@@ -227,8 +227,8 @@ def accept_result(ctx, row, result, *, evaluated_cases):
                 )
                 seen.add(case.id)
                 evidence["case"] = views.case(ctx, case)
-            scored = sorted([c for c in scored if c["score"] >= 3], key=lambda c: (-c["score"], c["case"]["caseId"]))[:3]
-            if not scored or available[tech_id]["timeFit"] != "MATCHED":
+            scored = sorted(scored, key=lambda c: (-c["score"], c["case"]["caseId"]))[:3]
+            if available[tech_id]["timeFit"] == "NOT_MATCHED":
                 continue
             recommendation["candidate"] = available[tech_id]
             recommendation["cases"] = scored

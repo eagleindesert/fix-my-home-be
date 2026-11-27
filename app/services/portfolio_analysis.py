@@ -59,7 +59,7 @@ def snapshot(ctx, prompt, *, analyze_missing):
     technician_ids = {
         candidate["technician"]["technicianId"]
         for candidate in prompt["candidates"]
-        if candidate["timeFit"] == "MATCHED"
+        if candidate["timeFit"] != "NOT_MATCHED"
     }
     cases = [case for case in prompt["cases"] if case["technicianId"] in technician_ids]
     if not cases:

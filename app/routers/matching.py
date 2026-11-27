@@ -6,12 +6,18 @@ from starlette.responses import Response
 from app.errors import require
 from app.http import EndpointInput, run_endpoint
 from app.pagination import page
-from app.services import ai, reference, technicians, views
+from app.services import ai, case_matching, reference, technicians, views
 from app.services.context import Context
 from app.time_rules import iso
 
 
 router = APIRouter(tags=["Matching"])
+REFERENCE_CASE_MESSAGES = {
+    "NOT_REQUESTED": "등록된 수리 사례를 먼저 보여드려요.",
+    "RUNNING": "AI가 평가하는 동안 등록된 수리 사례를 먼저 보여드려요.",
+    "COMPLETED": "AI 평가에서 추천할 사례를 고르지 못해 등록된 수리 사례를 보여드려요.",
+    "INCOMPLETE": "AI 평가를 완료하지 못해 등록된 수리 사례를 보여드려요.",
+}
 
 
 @router.get(
@@ -20,7 +26,7 @@ router = APIRouter(tags=["Matching"])
     description=(
         "- **인증 요구사항**: ✅\n"
         "- **선행 조건**: 본인\n"
-        "- **설명**: 사례 평가 상태·추천 기사·점수·근거·미완료 사유를 반환한다."
+        "- **설명**: 사례 평가 상태와 추천 근거를 반환한다. 유효한 AI 추천이 없으면 등록 사례를 제공한다."
     ),
     status_code=200,
     operation_id="api_41_v1_work_items__workItemId__case_recommendations_get",
@@ -28,21 +34,29 @@ router = APIRouter(tags=["Matching"])
 async def get_case_recommendations(request: Request, workItemId: str) -> Response:
     def operation(ctx: Context, inputs: EndpointInput):
         item = ctx.own(workItemId, "WORK_ITEM", writable=False)
-        ctx.get(item.request_id, "REQUEST")
+        root = ctx.get(item.request_id, "REQUEST")
         rows = [r for r in ctx.find("AI_JOB", item_id=item.id) if r.data["type"] == "CASE_MATCHING"]
+        status, stale = "NOT_REQUESTED", False
         if rows:
             latest = ai.view(ctx, rows[-1])
-            if latest["result"]:
-                return latest["result"]["caseRecommendations"]
-            status = "RUNNING" if latest["status"] in ("QUEUED", "RUNNING") else "INCOMPLETE"
-        else:
-            status = "NOT_REQUESTED"
+            evaluated = (latest["result"] or {}).get("caseRecommendations")
+            stale = latest["stale"]
+            if evaluated and evaluated["recommendations"]:
+                return evaluated
+            if evaluated:
+                status = "COMPLETED"
+            elif not stale and latest["status"] in ("QUEUED", "RUNNING"):
+                status = "RUNNING"
+            else:
+                status = "INCOMPLETE"
+
+        recommendations = case_matching.fallback_recommendations(ctx, root, item)
         return {
             "evaluationStatus": status,
             "sourceRevision": item.data["sourceRevision"],
-            "stale": bool(rows and (not ai.source_current(ctx, rows[-1]))),
-            "recommendations": [],
-            "reason": "명시적으로 실행한 최신 사례 평가 결과가 없습니다.",
+            "stale": stale,
+            "recommendations": recommendations,
+            "reason": REFERENCE_CASE_MESSAGES[status] if recommendations else "현재 조회할 수 있는 등록 수리 사례가 없어요.",
         }
 
     return await run_endpoint(request, operation)

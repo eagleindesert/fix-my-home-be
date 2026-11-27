@@ -140,6 +140,25 @@ def schedule_view(ctx, tech, query):
             "checks": checks, "openRanges": open_ranges, "referenceVersions": reference.versions(ctx)}
 
 
+def candidate_view(ctx, item, tech, matched_fields, *, time_fit, reason):
+    checks = []
+    if reason:
+        checks.append({
+            "status": "RECHECK_REQUIRED" if time_fit == "UNKNOWN" else "CONFLICT",
+            "code": "CANDIDATE_SCHEDULE",
+            "reason": reason,
+            "reservationIds": [],
+        })
+    return {
+        "technician": views.public_technician(ctx, tech),
+        "matchedFields": sorted(matched_fields),
+        "unsupportedFields": sorted(set(item.data["facts"]["fields"]) - matched_fields),
+        "timeFit": time_fit,
+        "durationEstimate": reference.duration(ctx, item),
+        "checks": checks,
+    }
+
+
 def candidates(ctx, item):
     root = ctx.open_request(item)
     reference.require_supported(ctx, root, item)
@@ -151,10 +170,7 @@ def candidates(ctx, item):
         if tech.owner_id == root.owner_id or not matched or region["regionId"] not in tech.data["profile"]["regionIds"]:
             continue
         fit, _, reason = scheduling.candidate_fit(ctx, item, tech)
-        result.append({"technician": views.public_technician(ctx, tech), "matchedFields": sorted(matched),
-                       "unsupportedFields": sorted(set(item.data["facts"]["fields"])-matched), "timeFit": fit,
-                       "durationEstimate": reference.duration(ctx, item), "checks": [] if reason is None else [
-                           {"status": "RECHECK_REQUIRED" if fit == "UNKNOWN" else "CONFLICT", "code": "CANDIDATE_SCHEDULE", "reason": reason, "reservationIds": []}]})
+        result.append(candidate_view(ctx, item, tech, matched, time_fit=fit, reason=reason))
     return sorted(result, key=lambda v: (v["timeFit"] != "MATCHED", v["technician"]["technicianId"]))
 
 

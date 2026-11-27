@@ -1489,7 +1489,7 @@
 
 - **인증 요구사항**: ✅
 - **선행 조건**: 본인
-- **설명**: 사례 평가 상태·추천 기사·점수·근거·미완료 사유를 반환한다.
+- **설명**: 사례 평가 상태와 추천 근거를 반환한다. 표시할 AI 추천이 없으면 등록 사례를 `recommendations`로 최대 5건 제공한다. 등록 사례의 수리 분야와 증상 표현으로 참고 점수를 계산하고 근거에 그 기준을 표시한다.
 
 **Path Variables**
 
@@ -1501,12 +1501,7 @@
 
 | 필드 | 타입 | 설명 |
 | --- | --- | --- |
-| `data` | CaseRecommendationsDTO | 처리 결과 |
-
-**예외 응답**
-
-- **422 Unprocessable Content**: 해당 기능의 필수 정보·사진 근거 부족 (`INSUFFICIENT_INPUT`)
-- **422 Unprocessable Content**: 서울 밖 또는 확인 분야가 모두 미지원인 항목의 조건 충족 추천 요청 (`SERVICE_UNSUPPORTED`)
+| `data` | CaseRecommendationsDTO | 사례 조회 결과 |
 
 ---
 
@@ -3853,17 +3848,17 @@ AI 작업 ID·결과 이력은 `GET /requests/{requestId}/ai-jobs`에서 조회�
 | 필드 | 타입 | 설명 |
 | --- | --- | --- |
 | `case` | CaseDTO | 관련 원문·담당 기사 연결 |
-| `score` | integer | `1~5`; 채택·평균 대상은 3 이상 |
+| `score` | integer | 관련성 `1~5`점. 등록 사례의 참고 점수는 분야와 증상 표현의 일치로 계산 |
 | `evidence` | string[] | 최초 증상·확인 원인·작업·부품의 원문 근거 |
 
 ### CaseRecommendationDTO
 
 | 필드 | 타입 | 설명 |
 | --- | --- | --- |
-| `candidate` | CandidateDTO | 분야·지역·시간 검사 통과 기사 |
+| `candidate` | CandidateDTO | 사례를 등록한 기사의 공개 프로필과 분야·시간 검사 결과 |
 | `cases` | ScoredCaseDTO[] | 점수 내림차순 상위 최대 3개; 동점은 사례 ID순 |
 | `averageScore` | number | 반올림 전 평균으로 순위 결정; 1~2개는 해당 평균 |
-| `rank` | integer | 평균 내림차순; 동률 기사 ID순; 최대 5 |
+| `rank` | integer | 평균 내림차순으로 최대 5명. 동점은 기사 ID순이며 등록 사례의 참고 점수는 지역 일치를 먼저 비교 |
 
 ### CaseRecommendationsDTO
 
@@ -3872,8 +3867,8 @@ AI 작업 ID·결과 이력은 `GET /requests/{requestId}/ai-jobs`에서 조회�
 | `evaluationStatus` | EvaluationStatus | 미실행·처리 중·완료·미완료 구분 |
 | `sourceRevision` | string | 평가 근거 식별값 |
 | `stale` | boolean | 관련 입력·사례 변경으로 갱신 필요 |
-| `recommendations` | CaseRecommendationDTO[] | 중복 없는 적합 상위 최대 5명 |
-| `reason` | string? | 연관 사례 없음·적합 기사 없음·평가 미완료 등을 구분 |
+| `recommendations` | CaseRecommendationDTO[] | AI 평가 상위 최대 5명. 조회 시 표시할 AI 결과가 비어 있으면 등록 사례의 참고 순위 제공 |
+| `reason` | string? | 평가 미완료와 등록 사례 제공 사유 또는 조회할 수 있는 사례가 없는 이유 |
 
 ### RouteCandidateDTO
 
